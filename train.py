@@ -163,7 +163,7 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
                 postnet_loss = criterion(postnet_output, mel_input)
         loss = decoder_loss + postnet_loss
         if not c.separate_stopnet and c.stopnet:
-            loss += stop_loss
+            loss += c.stop_loss_adjustment * stop_loss
 
         loss.backward()
         optimizer, current_lr = weight_decay(optimizer, c.wd)
