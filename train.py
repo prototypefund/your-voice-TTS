@@ -215,7 +215,7 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
                             "grad_norm": grad_norm,
                             "grad_norm_st": grad_norm_st,
                             "ma_step_time": np.mean(step_times[-c.print_step:])}
-            tb_logger.tb_train_iter_stats(current_step, iter_stats)
+                tb_logger.tb_train_iter_stats(current_step, iter_stats)
 
             if current_step % c.save_step == 0:
                 if c.checkpoint:
