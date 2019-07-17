@@ -91,10 +91,10 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
         speaker_mapping = load_speaker_mapping(OUT_PATH)
     model.train()
     epoch_time = 0
-    avg_postnet_loss = 0
-    avg_decoder_loss = 0
-    avg_stop_loss = 0
-    avg_step_time = 0
+    postnet_losses = []
+    decoder_losses = []
+    stop_losses = []
+    step_times = []
     print("\n > Epoch {}/{}".format(epoch, c.epochs), flush=True)
     batch_n_iter = int(len(data_loader.dataset) / (c.batch_size * num_gpus))
     for num_iter, data in enumerate(data_loader):
@@ -200,18 +200,20 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
             stop_loss = reduce_tensor(stop_loss.data, num_gpus) if c.stopnet else stop_loss
 
         if args.rank == 0:
-            avg_postnet_loss += float(postnet_loss.item())
-            avg_decoder_loss += float(decoder_loss.item())
-            avg_stop_loss += stop_loss if type(stop_loss) is float else float(stop_loss.item())
-            avg_step_time += step_time
+            postnet_losses.append(float(postnet_loss.item()))
+            decoder_losses.append(float(decoder_loss.item()))
+            stop_losses.append(stop_loss if type(stop_loss) is float else float(stop_loss.item()))
+            step_times.append(step_time)
 
+            if current_step % c.print_step == 0:
             # Plot Training Iter Stats
-            iter_stats = {"loss_posnet": postnet_loss.item(),
-                        "loss_decoder": decoder_loss.item(),
-                        "lr": current_lr,
-                        "grad_norm": grad_norm,
-                        "grad_norm_st": grad_norm_st,
-                        "step_time": step_time}
+                iter_stats = {"ma_loss_posnet": np.mean(postnet_losses[-c.print_step:]),
+                            "ma_loss_decoder": np.mean(decoder_losses[-c.print_step:]),
+                            "ma_stop_loss": np.mean(stop_losses[-c.print_step:]),
+                            "lr": current_lr,
+                            "grad_norm": grad_norm,
+                            "grad_norm_st": grad_norm_st,
+                            "ma_step_time": np.mean(step_times[-c.print_step:])}
             tb_logger.tb_train_iter_stats(current_step, iter_stats)
 
             if current_step % c.save_step == 0:
@@ -242,34 +244,34 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
                                             {'TrainAudio': train_audio},
                                             c.audio["sample_rate"])
 
-    avg_postnet_loss /= (num_iter + 1)
-    avg_decoder_loss /= (num_iter + 1)
-    avg_stop_loss /= (num_iter + 1)
-    avg_total_loss = avg_decoder_loss + avg_postnet_loss + avg_stop_loss
-    avg_step_time /= (num_iter + 1)
+    total_losses = [decoder_losses[i] + postnet_losses[i] + stop_losses[i]
+                    for i in range(len(postnet_losses))]
 
     # print epoch stats
     print(
         "   | > EPOCH END -- GlobalStep:{}  AvgTotalLoss:{:.5f}  "
         "AvgPostnetLoss:{:.5f}  AvgDecoderLoss:{:.5f}  "
         "AvgStopLoss:{:.5f}  EpochTime:{:.2f}  "
-        "AvgStepTime:{:.2f}".format(current_step, avg_total_loss,
-                                    avg_postnet_loss, avg_decoder_loss,
-                                    avg_stop_loss, epoch_time, avg_step_time),
+        "AvgStepTime:{:.2f}".format(current_step, np.mean(total_losses),
+                                    np.mean(postnet_losses),
+                                    np.mean(decoder_losses),
+                                    np.mean(stop_losses),
+                                    epoch_time,
+                                    np.mean(step_times)),
         flush=True)
 
     # Plot Epoch Stats
     if args.rank == 0:
         # Plot Training Epoch Stats
-        epoch_stats = {"loss_postnet": avg_postnet_loss,
-                    "loss_decoder": avg_decoder_loss,
-                    "stop_loss": avg_stop_loss,
+        epoch_stats = {"loss_postnet": np.mean(postnet_losses),
+                    "loss_decoder": np.mean(decoder_losses),
+                    "stop_loss": np.mean(stop_losses),
                     "epoch_time": epoch_time}
         tb_logger.tb_train_epoch_stats(current_step, epoch_stats)
         if c.tb_model_param_stats:
             tb_logger.tb_model_weights(model, current_step)
 
-    return avg_postnet_loss, current_step
+    return np.mean(postnet_losses), current_step
 
 
 def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
