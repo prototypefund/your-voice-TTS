@@ -9,5 +9,5 @@ def get_docker_image_id():
 
 def get_run_id():
     chars = string.digits + string.ascii_lowercase
-    return random.choices(chars, k=7)
+    return "".join(random.choices(chars, k=7))
 
