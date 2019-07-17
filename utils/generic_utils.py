@@ -13,7 +13,7 @@ import numpy as np
 from collections import OrderedDict, Counter
 from torch.autograd import Variable
 
-from utils.docker import get_docker_image_id
+from utils.docker import get_docker_image_id, get_run_id
 from utils.text import text_to_sequence
 
 
@@ -57,7 +57,7 @@ def get_commit_hash():
                                           'HEAD']).decode().strip()
     # Not copying .git folder into docker container
     except subprocess.CalledProcessError:
-        commit = get_docker_image_id()
+        commit = f"{get_docker_image_id()}_{get_run_id()}"
     print(' > Git Hash: {}'.format(commit))
     return commit
 
