@@ -63,8 +63,8 @@ def setup_loader(is_val=False, verbose=False):
             meta_data=meta_data_eval if is_val else meta_data_train,
             ap=ap,
             batch_group_size=0 if is_val else c.batch_group_size * c.batch_size,
-            min_seq_len=0 if is_val else c.min_seq_len,
-            max_seq_len=float("inf") if is_val else c.max_seq_len,
+            min_seq_len=c.min_seq_len,
+            max_seq_len=c.max_seq_len,
             phoneme_cache_path=c.phoneme_cache_path,
             use_phonemes=c.use_phonemes,
             phoneme_language=c.phoneme_language,
@@ -284,10 +284,12 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
     print("\n > Validation")
     if c.test_sentences_file is None:
         test_sentences = [
-            "It took me quite a long time to develop a voice, and now that I have it I'm not going to be silent.",
-            "Be a voice, not an echo.",
-            "I'm sorry Dave. I'm afraid I can't do that.",
-            "This cake is great. It's so delicious and moist."
+            "Am Ende gibt es nur einen Verlierer: die SPD. Die Sozialdemokraten haben mit ihrem 'Nein' zu Ursula von der Leyen weder sich noch dem Spitzenkandidatenprinzip geholfen.",
+            "In Kitas, Schulen und Asylunterkünften soll künftig ein Impfschutz verpflichtend sein, auch für Angestellte.",
+            "Es tut mir leid Thomas, aber ich kann das leider nicht tun.",
+            "Auf den sieben Robbenklippen sitzen sieben Robbensippen, die sich in die Rippen stippen, bis sie von den Klippen kippen.",
+            "Ich esse meine Suppe nicht! Nein, meine Suppe ess' ich nicht!"
+            "Hallo Frau Peters, ich bin Herr Müller."
         ]
     else:
         with open(c.test_sentences_file, "r") as f:
