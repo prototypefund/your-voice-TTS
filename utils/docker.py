@@ -1,10 +1,5 @@
-import random
-import string
+import os
 
 
-def generate_random_string(length=10):
-    """Generate a random string of fixed length """
-    letters = string.ascii_lowercase + string.digits
-    return ''.join(random.choices(letters, k=length))
-
-
+def get_docker_image_id():
+    return os.environ["DOCKER_IMAGE_ID"]
