@@ -411,23 +411,49 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
         test_audios = {}
         test_figures = {}
         print(" | > Synthesizing test sentences")
-        speaker_id = 0 if c.use_speaker_embedding else None
-        for idx, test_sentence in enumerate(test_sentences):
-            try:
-                wav, alignment, decoder_output, postnet_output, stop_tokens = synthesis(
-                    model, test_sentence, c, use_cuda, ap,
-                    speaker_id=speaker_id)
-                file_path = os.path.join(AUDIO_PATH, str(current_step))
-                os.makedirs(file_path, exist_ok=True)
-                file_path = os.path.join(file_path,
-                                         "TestSentence_{}.wav".format(idx))
-                ap.save_wav(wav, file_path)
-                test_audios['{}-audio'.format(idx)] = wav
-                test_figures['{}-prediction'.format(idx)] = plot_spectrogram(postnet_output, ap)
-                test_figures['{}-alignment'.format(idx)] = plot_alignment(alignment)
-            except:
-                print(" !! Error creating Test Sentence -", idx)
-                traceback.print_exc()
+        if c.use_speaker_embedding:
+            speaker_mapping = load_speaker_mapping(OUT_PATH)
+            for speaker_name, speaker_id in speaker_mapping.items():
+                for idx, test_sentence in enumerate(test_sentences):
+                    try:
+                        wav, alignment, decoder_output, postnet_output, \
+                        stop_tokens = synthesis(
+                            model, test_sentence, c, use_cuda, ap,
+                            speaker_id=speaker_id)
+                        file_path = os.path.join(AUDIO_PATH, str(current_step))
+                        os.makedirs(file_path, exist_ok=True)
+                        file_path = os.path.join(file_path,
+                                                 "TestSentence_{}-{}.wav".format(
+                                                     speaker_name, idx))
+                        ap.save_wav(wav, file_path)
+                        test_audios['{}-{}-audio'.format(speaker_name, idx)] = wav
+                        test_figures[
+                            '{}-{}-prediction'.format(speaker_name, idx)] = plot_spectrogram(
+                            postnet_output, ap)
+                        test_figures[
+                            '{}-{}-alignment'.format(speaker_name, idx)] = plot_alignment(
+                            alignment)
+                    except:
+                        print(" !! Error creating Test Sentence -", idx)
+                        traceback.print_exc()
+        else:
+            speaker_id = None
+            for idx, test_sentence in enumerate(test_sentences):
+                try:
+                    wav, alignment, decoder_output, postnet_output, stop_tokens = synthesis(
+                        model, test_sentence, c, use_cuda, ap,
+                        speaker_id=speaker_id)
+                    file_path = os.path.join(AUDIO_PATH, str(current_step))
+                    os.makedirs(file_path, exist_ok=True)
+                    file_path = os.path.join(file_path,
+                                             "TestSentence_{}.wav".format(idx))
+                    ap.save_wav(wav, file_path)
+                    test_audios['{}-audio'.format(idx)] = wav
+                    test_figures['{}-prediction'.format(idx)] = plot_spectrogram(postnet_output, ap)
+                    test_figures['{}-alignment'.format(idx)] = plot_alignment(alignment)
+                except:
+                    print(" !! Error creating Test Sentence -", idx)
+                    traceback.print_exc()
         tb_logger.tb_test_audios(current_step, test_audios, c.audio['sample_rate'])
         tb_logger.tb_test_figures(current_step, test_figures)
     return avg_postnet_loss
