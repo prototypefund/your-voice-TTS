@@ -1,8 +1,6 @@
 # coding: utf-8
-import torch
 from torch import nn
-from math import sqrt
-from layers.tacotron import Prenet, Encoder, Decoder, PostCBHG
+from layers.tacotron import Encoder, Decoder, PostCBHG
 from utils.generic_utils import sequence_mask
 
 
@@ -70,6 +68,8 @@ class Tacotron(nn.Module):
         return mel_outputs, linear_outputs, alignments, stop_tokens
 
     def _add_speaker_embedding(self, encoder_outputs, speaker_ids):
+        if hasattr(self, "speaker_embedding") and speaker_ids is None:
+            raise RuntimeError(" [!] Model has speaker embedding layer but speaker_id is not provided")
         if hasattr(self, "speaker_embedding") and speaker_ids is not None:
             speaker_embeddings = self.speaker_embedding(speaker_ids)
 

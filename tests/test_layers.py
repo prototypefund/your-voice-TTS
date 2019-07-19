@@ -5,6 +5,7 @@ from layers.tacotron import Prenet, CBHG, Decoder, Encoder
 from layers.losses import L1LossMasked
 from utils.generic_utils import sequence_mask
 
+#pylint: disable=unused-variable
 
 class PrenetTests(unittest.TestCase):
     def test_in_out(self):
@@ -19,6 +20,7 @@ class PrenetTests(unittest.TestCase):
 
 class CBHGTests(unittest.TestCase):
     def test_in_out(self):
+        #pylint: disable=attribute-defined-outside-init
         layer = self.cbhg = CBHG(
             128,
             K=8,
@@ -37,12 +39,27 @@ class CBHGTests(unittest.TestCase):
 
 
 class DecoderTests(unittest.TestCase):
-    def test_in_out(self):
-        layer = Decoder(in_features=256, memory_dim=80, r=2, memory_size=4, attn_windowing=False, attn_norm="sigmoid")
+    @staticmethod
+    def test_in_out():
+        layer = Decoder(
+            in_features=256,
+            memory_dim=80,
+            r=2,
+            memory_size=4,
+            attn_windowing=False,
+            attn_norm="sigmoid",
+            prenet_type='original',
+            prenet_dropout=True,
+            forward_attn=True,
+            trans_agent=True,
+            forward_attn_mask=True,
+            location_attn=True,
+            separate_stopnet=True)
         dummy_input = T.rand(4, 8, 256)
         dummy_memory = T.rand(4, 2, 80)
 
-        output, alignment, stop_tokens = layer(dummy_input, dummy_memory, mask=None)
+        output, alignment, stop_tokens = layer(
+            dummy_input, dummy_memory, mask=None)
 
         assert output.shape[0] == 4
         assert output.shape[1] == 1, "size not {}".format(output.shape[1])
