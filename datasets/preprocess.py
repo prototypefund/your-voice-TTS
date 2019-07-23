@@ -72,7 +72,7 @@ def mozilla(root_path, meta_file):
 
 def mailabs(root_path, meta_files=None):
     """Normalizes M-AI-Labs meta data files to TTS format"""
-    speaker_regex = re.compile("by_book/(male|female|mix)/(?P<speaker_name>[^/]+)/")
+    speaker_regex = re.compile("by_book/(male|female)/(?P<speaker_name>[^/]+)/")
     if meta_files is None:
         csv_files = glob(root_path+"/**/metadata.csv", recursive=True)
         folders = [os.path.dirname(f) for f in csv_files]
@@ -82,11 +82,14 @@ def mailabs(root_path, meta_files=None):
     # meta_files = [f.strip() for f in meta_files.split(",")]
     items = []
     for idx, csv_file in enumerate(csv_files):
+        txt_file = os.path.join(root_path, csv_file)
         # determine speaker based on folder structure...
-        speaker_name = speaker_regex.search(csv_file).group("speaker_name")
+        speaker_name_match = speaker_regex.search(txt_file)
+        if speaker_name_match is None:
+            continue
+        speaker_name = speaker_name_match.group("speaker_name")
         print(" | > {}".format(csv_file))
         folder = folders[idx]
-        txt_file = os.path.join(root_path, csv_file)
         with open(txt_file, 'r') as ttf:
             for line in ttf:
                 cols = line.split('|')
