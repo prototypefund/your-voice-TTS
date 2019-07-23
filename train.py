@@ -180,16 +180,6 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
         step_time = time.time() - start_time
         epoch_time += step_time
 
-        if current_step % c.print_step == 0:
-            print(
-                "   | > Step:{}/{}  GlobalStep:{}  TotalLoss:{:.5f}  PostnetLoss:{:.5f}  "
-                "DecoderLoss:{:.5f}  StopLoss:{:.5f}  GradNorm:{:.5f}  "
-                "GradNormST:{:.5f}  AvgTextLen:{:.1f}  AvgSpecLen:{:.1f}  StepTime:{:.2f}  LR:{:.6f}".format(
-                    num_iter, batch_n_iter, current_step, loss.item(),
-                    postnet_loss.item(), decoder_loss.item(), stop_loss.item(),
-                    grad_norm, grad_norm_st, avg_text_length, avg_spec_length, step_time, current_lr),
-                flush=True)
-
         # aggregate losses from processes
         if num_gpus > 1:
             postnet_loss = reduce_tensor(postnet_loss.data, num_gpus)
@@ -197,14 +187,32 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
             loss = reduce_tensor(loss.data, num_gpus)
             stop_loss = reduce_tensor(stop_loss.data, num_gpus) if c.stopnet else stop_loss
 
+        postnet_losses.append(float(postnet_loss.item()))
+        decoder_losses.append(float(decoder_loss.item()))
+        stop_losses.append(stop_loss if isinstance(stop_loss, float) else float(
+            stop_loss.item()))
+        step_times.append(step_time)
+
+        if current_step % c.print_step == 0:
+            print(
+                "   | > Step:{}/{}  GlobalStep:{}"
+                "PostnetLoss:{:.5f}  "
+                "DecoderLoss:{:.5f}  StopLoss:{:.5f}  GradNorm:{:.5f}  "
+                "GradNormST:{:.5f}  AvgTextLen:{:.1f}  AvgSpecLen:{:.1f}  "
+                "StepTime:{:.2f}  LR:{:.6f}".format(
+                    num_iter, batch_n_iter, current_step,
+                    np.mean(postnet_losses[-c.print_step:]),
+                    np.mean(decoder_losses[-c.print_step:]),
+                    np.mean(stop_losses[-c.print_step:]),
+                    grad_norm, grad_norm_st, avg_text_length,
+                    avg_spec_length, np.mean(step_times[-c.print_step:]),
+                    current_lr),
+                flush=True)
+
         if args.rank == 0:
-            postnet_losses.append(float(postnet_loss.item()))
-            decoder_losses.append(float(decoder_loss.item()))
-            stop_losses.append(stop_loss if isinstance(stop_loss, float) else float(stop_loss.item()))
-            step_times.append(step_time)
             if current_step % c.print_step == 0:
             # Plot Training Iter Stats
-                iter_stats = {"ma_loss_posnet": np.mean(postnet_losses[-c.print_step:]),
+                iter_stats = {"ma_loss_postnet": np.mean(postnet_losses[-c.print_step:]),
                             "ma_loss_decoder": np.mean(decoder_losses[-c.print_step:]),
                             "ma_stop_loss": np.mean(stop_losses[-c.print_step:]),
                             "lr": current_lr,
