@@ -283,7 +283,8 @@ def setup_model(num_chars, num_speakers, c):
             forward_attn_mask=c.forward_attn_mask,
             location_attn=c.location_attn,
             separate_stopnet=c.separate_stopnet,
-            use_gst=c.use_gst)
+            use_gst=c.use_gst,
+            memory_size=c.memory_size)
     else:
         raise ValueError(f"unknown model type: {c.model.lower()}")
     return model
