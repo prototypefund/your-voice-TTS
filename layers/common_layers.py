@@ -265,3 +265,48 @@ class Attention(nn.Module):
             ta_input = torch.cat([context, query.squeeze(1)], dim=-1)
             self.u = torch.sigmoid(self.ta(ta_input))
         return context
+
+
+class SimpleAttention(nn.Module):
+    # Pylint gets confused by PyTorch conventions here
+    #pylint: disable=attribute-defined-outside-init
+    def __init__(self, query_dim, embedding_dim, style_dim, trans_agent):
+        super(SimpleAttention, self).__init__()
+        self.trans_agent = trans_agent
+        if trans_agent:
+            self.ta_u = nn.Linear(query_dim + embedding_dim + style_dim, 1, bias=True)
+            # self.ta_sq = nn.Linear(query_dim + embedding_dim + style_dim, 1, bias=True)
+        self.alpha = None
+        self.u = None
+        self.sq = None
+
+    def init_states(self, inputs):
+        B = inputs.size(0)
+        T = inputs.size(1)
+        self.alpha = torch.cat(
+            (torch.ones((B, 1)),
+             torch.zeros((B, T))[:, :-1] + 1e-7), dim=1).to(inputs.device)
+        self.u = (0.5 * torch.ones((B, 1))).to(inputs.device)
+        self.sq = (1.4 * torch.ones((B, 1))).to(inputs.device)
+
+    def forward(self, query, inputs, style):
+        fwd_shifted_alpha = F.pad(
+            self.alpha[:, :-1].clone().to(inputs.device),
+            [1, 0, 0, 0])
+        # compute transition potentials
+        alpha = ((1 - self.u) * self.alpha
+                 + self.u * fwd_shifted_alpha
+                 + 1e-6) ** self.sq  # (self.sq + 1 - abs(0.5-self.u))
+        # renormalize attention weights
+        self.alpha = alpha / alpha.sum(dim=1, keepdim=True)
+
+        context = torch.bmm(self.alpha.unsqueeze(1), inputs)
+        context = context.squeeze(1)
+
+        # compute transition agent
+        if self.trans_agent:
+            ta_input = torch.cat((context, query.squeeze(1), style), dim=-1)
+            self.u = 0.5 + (torch.tanh(self.ta_u(ta_input)) / 3.0)
+            #self.sq = 1.25 + (torch.tanh(self.ta_sq(ta_input)) / 4.0)
+
+        return context

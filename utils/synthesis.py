@@ -32,10 +32,10 @@ def compute_style_mel(style_wav, ap, use_cuda):
 def run_model(model, inputs, truncated, speaker_id=None, style_mel=None):
     inference_func = model.inference_truncated if truncated else model.inference
     (decoder_output, postnet_output,
-     alignments, stop_tokens) = inference_func(inputs,
-                                               mel_specs=style_mel,
-                                               speaker_ids=speaker_id)
-    return decoder_output, postnet_output, alignments, stop_tokens
+     alignments) = inference_func(inputs,
+                                   mel_specs=style_mel,
+                                   speaker_ids=speaker_id)
+    return decoder_output, postnet_output, alignments
 
 
 def parse_outputs(postnet_output, decoder_output, alignments):
@@ -100,7 +100,7 @@ def synthesis(model,
     if speaker_id is not None and use_cuda:
         speaker_id = speaker_id.cuda()
     # synthesize voice
-    decoder_output, postnet_output, alignments, stop_tokens = run_model(
+    decoder_output, postnet_output, alignments = run_model(
         model, inputs, truncated, speaker_id, style_mel)
     # convert outputs to numpy
     postnet_output, decoder_output, alignment = parse_outputs(
@@ -110,4 +110,4 @@ def synthesis(model,
     # trim silence
     if do_trim_silence:
         wav = trim_silence(wav)
-    return wav, alignment, decoder_output, postnet_output, stop_tokens
+    return wav, alignment, decoder_output, postnet_output

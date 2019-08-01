@@ -2,7 +2,7 @@ import torch
 from torch.autograd import Variable
 from torch import nn
 from torch.nn import functional as F
-from .common_layers import Attention, Prenet, Linear
+from .common_layers import Prenet, Linear, SimpleAttention
 
 
 class ConvBNBlock(nn.Module):
@@ -101,17 +101,16 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
-    def __init__(self, in_features, memory_dim, r, attn_win, attn_norm,
-                 prenet_type, prenet_dropout, forward_attn, trans_agent,
-                 forward_attn_mask, location_attn, separate_stopnet, memory_size):
+    def __init__(self, in_features, memory_dim, r, style_dim,
+                 prenet_type, prenet_dropout, trans_agent, memory_size):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
         self.r = r
         self.memory_size = memory_size if memory_size > 0 else r
         self.encoder_embedding_dim = in_features
-        self.separate_stopnet = separate_stopnet
-        self.query_dim = 1024
-        self.decoder_rnn_dim = 1024
+        self.query_dim = 512
+        self.style_dim = style_dim
+        self.decoder_rnn_dim = 512
         self.prenet_dim = 256
         self.max_decoder_steps = 1000
         self.gate_threshold = 0.5
@@ -122,34 +121,19 @@ class Decoder(nn.Module):
                              prenet_dropout,
                              [self.prenet_dim, self.prenet_dim], bias=False)
 
-        self.attention_rnn = nn.LSTMCell(self.prenet_dim + in_features,
+        self.attention_rnn = nn.LSTMCell(self.prenet_dim + in_features + self.style_dim,
                                          self.query_dim)
 
-        self.attention = Attention(query_dim=self.query_dim,
-                                   embedding_dim=in_features,
-                                   attention_dim=128,
-                                   location_attention=location_attn,
-                                   attention_location_n_filters=32,
-                                   attention_location_kernel_size=31,
-                                   windowing=attn_win,
-                                   norm=attn_norm,
-                                   forward_attn=forward_attn,
-                                   trans_agent=trans_agent,
-                                   forward_attn_mask=forward_attn_mask)
+        self.attention = SimpleAttention(query_dim=self.query_dim,
+                                         embedding_dim=in_features,
+                                         style_dim=self.style_dim,
+                                         trans_agent=trans_agent)
 
-        self.decoder_rnn = nn.LSTMCell(self.query_dim + in_features,
+        self.decoder_rnn = nn.LSTMCell(self.query_dim + in_features + self.style_dim,
                                        self.decoder_rnn_dim, 1)
 
-        self.linear_projection = Linear(self.decoder_rnn_dim + in_features,
+        self.linear_projection = Linear(self.decoder_rnn_dim + in_features + self.style_dim,
                                         self.memory_dim * r)
-
-        self.stopnet = nn.Sequential(
-            nn.Dropout(0.1),
-            Linear(
-                self.decoder_rnn_dim + self.memory_dim * r,
-                1,
-                bias=True,
-                init_gain='sigmoid'))
 
         self.attention_rnn_init = nn.Embedding(1, self.query_dim)
         self.memory_init = nn.Embedding(1, self.memory_dim * self.memory_size)
@@ -161,7 +145,7 @@ class Decoder(nn.Module):
         memory = self.memory_init(inputs.data.new_zeros(B).long())
         return memory
 
-    def _init_states(self, inputs, mask, keep_states=False):
+    def _init_states(self, inputs, style, mask, keep_states=False):
         B = inputs.size(0)
         # T = inputs.size(1)
 
@@ -179,8 +163,11 @@ class Decoder(nn.Module):
             self.context = Variable(
                 inputs.data.new(B, self.encoder_embedding_dim).zero_())
 
+        if style is None:
+            self.style = inputs.data.new(B, self.style_dim).zero_()
+        else:
+            self.style = style
         self.inputs = inputs
-        self.processed_inputs = self.attention.inputs_layer(inputs)
         self.mask = mask
 
     def _unfold_memory(self, memory):
@@ -213,17 +200,15 @@ class Decoder(nn.Module):
             new_memory = decoder_output
         return new_memory
 
-    def _parse_outputs(self, outputs, stop_tokens, alignments):
+    def _parse_outputs(self, outputs, alignments):
         alignments = torch.stack(alignments).transpose(0, 1)
-        stop_tokens = torch.stack(stop_tokens).transpose(0, 1).contiguous()
         outputs = torch.stack(outputs).transpose(0, 1)
-        outputs = outputs.contiguous().view(outputs.size(0), -1,
-                                             self.memory_dim)
+        outputs = outputs.contiguous().view(outputs.size(0), -1, self.memory_dim)
         outputs = outputs.transpose(1, 2)
-        return outputs, stop_tokens, alignments
+        return outputs, alignments
 
     def decode(self, memory):
-        query_input = torch.cat((memory, self.context), -1)
+        query_input = torch.cat((memory, self.context, self.style), -1)
         self.query, self.attention_rnn_cell_state = self.attention_rnn(
             query_input, (self.query, self.attention_rnn_cell_state))
         self.query = F.dropout(
@@ -231,10 +216,9 @@ class Decoder(nn.Module):
         self.attention_rnn_cell_state = F.dropout(
             self.attention_rnn_cell_state, self.p_attention_dropout, self.training)
 
-        self.context = self.attention(self.query, self.inputs,
-                                      self.processed_inputs, self.mask)
+        self.context = self.attention(self.query, self.inputs, self.style)
 
-        memory = torch.cat((self.query, self.context), -1)
+        memory = torch.cat((self.query, self.context, self.style), -1)
         self.decoder_hidden, self.decoder_cell = self.decoder_rnn(
             memory, (self.decoder_hidden, self.decoder_cell))
         self.decoder_hidden = F.dropout(self.decoder_hidden,
@@ -242,21 +226,14 @@ class Decoder(nn.Module):
         self.decoder_cell = F.dropout(self.decoder_cell,
                                       self.p_decoder_dropout, self.training)
 
-        decoder_hidden_context = torch.cat((self.decoder_hidden, self.context),
+        decoder_hidden_context = torch.cat((self.decoder_hidden, self.context, self.style),
                                            dim=1)
 
         decoder_output = self.linear_projection(decoder_hidden_context)
 
-        stopnet_input = torch.cat((self.decoder_hidden, decoder_output), dim=1)
+        return decoder_output, self.attention.alpha
 
-        if self.separate_stopnet:
-            stop_token = self.stopnet(stopnet_input.detach())
-        else:
-            stop_token = self.stopnet(stopnet_input)
-        stop_token = stop_token.squeeze(1)
-        return decoder_output, stop_token, self.attention.attention_weights
-
-    def forward(self, inputs, memory, mask):
+    def forward(self, inputs, memory, style, mask):
         memory_start = self.get_memory_start_frame(inputs)
         memory_start = memory_start.view(inputs.size(0),
                                          self.memory_size, self.memory_dim)
@@ -264,103 +241,75 @@ class Decoder(nn.Module):
         memories = self._unfold_memory(memory)
         memories = self.prenet(memories)
 
-        self._init_states(inputs, mask=mask)
+        self._init_states(inputs, style, mask=mask)
         self.attention.init_states(inputs)
 
-        outputs, stop_tokens, alignments = [], [], []
+        outputs, alignments = [], []
         while len(outputs) < memories.size(0) - 1:
             memory = memories[len(outputs)]
-            mel_output, stop_token, attention_weights = self.decode(memory)
+            mel_output, attention_weights = self.decode(memory)
             outputs += [mel_output]
-            stop_tokens += [stop_token]
             alignments += [attention_weights]
 
-        outputs, stop_tokens, alignments = self._parse_outputs(
-            outputs, stop_tokens, alignments)
+        outputs, alignments = self._parse_outputs(outputs, alignments)
 
-        return outputs, stop_tokens, alignments
+        return outputs, alignments
 
-    def inference(self, inputs):
+    def inference(self, inputs, style):
         memory = self.get_memory_start_frame(inputs)
-        self._init_states(inputs, mask=None)
 
-        self.attention.init_win_idx()
+        self._init_states(inputs, style, mask=None)
         self.attention.init_states(inputs)
 
-        outputs, stop_tokens, alignments, t = [], [], [], 0
-        stop_flags = [True, False, False]
-        stop_count = 0
+        outputs, alignments = [], []
         while True:
             processed_memory = self.prenet(memory)
-            output, stop_token, alignment = self.decode(processed_memory)
-            stop_token = torch.sigmoid(stop_token.data)
+            output, alignment = self.decode(processed_memory)
             outputs += [output]
-            stop_tokens += [stop_token]
             alignments += [alignment]
             memory = self._update_memory(memory, outputs[-1])
 
-            stop_flags[0] = stop_flags[0] or stop_token > 0.5
-            stop_flags[1] = stop_flags[1] or (alignment[0, -2:].sum() > 0.8
-                                              and t > inputs.shape[1])
-            stop_flags[2] = t > inputs.shape[1] * 2
-            if all(stop_flags):
-                stop_count += 1
-                if stop_count > 20:
-                    break
+            if F.cosine_similarity(self.context, inputs[:, -1, :]) > 0.9:
+                break
             elif len(outputs) == self.max_decoder_steps:
                 print("   | > Decoder stopped with 'max_decoder_steps")
                 break
 
-            t += 1
+        outputs, alignments = self._parse_outputs(
+            outputs, alignments)
 
-        outputs, stop_tokens, alignments = self._parse_outputs(
-            outputs, stop_tokens, alignments)
+        return outputs, alignments
 
-        return outputs, stop_tokens, alignments
-
-    def inference_truncated(self, inputs):
+    def inference_truncated(self, inputs, style):
         """
         Preserve decoder states for continuous inference
         """
         if self.memory_truncated is None:
             self.memory_truncated = self.get_memory_start_frame(inputs)
-            self._init_states(inputs, mask=None, keep_states=False)
+            self._init_states(inputs, style, mask=None, keep_states=False)
         else:
-            self._init_states(inputs, mask=None, keep_states=True)
+            self._init_states(inputs, style, mask=None, keep_states=True)
 
-        self.attention.init_win_idx()
         self.attention.init_states(inputs)
-        outputs, stop_tokens, alignments, t = [], [], [], 0
-        stop_flags = [True, False, False]
-        stop_count = 0
+        outputs, alignments = [], []
         while True:
             memory = self.prenet(self.memory_truncated)
             mel_output, stop_token, alignment = self.decode(memory)
-            stop_token = torch.sigmoid(stop_token.data)
             outputs += [mel_output]
-            stop_tokens += [stop_token]
             alignments += [alignment]
             self.memory_truncated = self._update_memory(self.memory_truncated,
                                                         outputs[-1])
 
-            stop_flags[0] = stop_flags[0] or stop_token > 0.5
-            stop_flags[1] = stop_flags[1] or (alignment[0, -2:].sum() > 0.8
-                                              and t > inputs.shape[1])
-            stop_flags[2] = t > inputs.shape[1] * 2
-            if all(stop_flags):
-                stop_count += 1
-                if stop_count > 20:
-                    break
+            if F.cosine_similarity(self.context, inputs[:, -1, :]) > 0.9:
+                break
             elif len(outputs) == self.max_decoder_steps:
                 print("   | > Decoder stopped with 'max_decoder_steps")
                 break
 
-            t += 1
+        outputs, alignments = self._parse_outputs(
+            outputs, alignments)
 
-        outputs, stop_tokens, alignments = self._parse_outputs(
-            outputs, stop_tokens, alignments)
-
-        return outputs, stop_tokens, alignments
+        return outputs, alignments
 
     def inference_step(self, inputs, t, memory=None):
         """
@@ -371,7 +320,5 @@ class Decoder(nn.Module):
             self._init_states(inputs, mask=None)
 
         memory = self.prenet(memory)
-        mel_output, stop_token, alignment = self.decode(memory)
-        stop_token = torch.sigmoid(stop_token.data)
-        memory = mel_output
-        return mel_output, stop_token, alignment
+        mel_output, alignment = self.decode(memory)
+        return mel_output, alignment

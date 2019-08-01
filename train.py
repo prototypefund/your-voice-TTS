@@ -90,7 +90,7 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
     epoch_time = 0
     postnet_losses = []
     decoder_losses = []
-    stop_losses = []
+    # stop_losses = []
     step_times = []
     print("\n > Epoch {}/{}".format(epoch, c.epochs), flush=True)
     batch_n_iter = int(len(data_loader.dataset) / (c.batch_size * num_gpus))
@@ -104,7 +104,7 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
         linear_input = data[3] if c.model == "Tacotron" else None
         mel_input = data[4]
         mel_lengths = data[5]
-        stop_targets = data[6]
+        # stop_targets = data[6]
         avg_text_length = torch.mean(text_lengths.float())
         avg_spec_length = torch.mean(mel_lengths.float())
 
@@ -116,9 +116,9 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
             speaker_ids = None
 
         # set stop targets view, we predict a single stop token per r frames prediction
-        stop_targets = stop_targets.view(text_input.shape[0],
-                                         stop_targets.size(1) // c.r, -1)
-        stop_targets = (stop_targets.sum(2) > 0.0).unsqueeze(2).float().squeeze(2)
+        # stop_targets = stop_targets.view(text_input.shape[0],
+        #                                  stop_targets.size(1) // c.r, -1)
+        # stop_targets = (stop_targets.sum(2) > 0.0).unsqueeze(2).float().squeeze(2)
 
         current_step = num_iter + args.restore_step + \
             epoch * len(data_loader) + 1
@@ -137,16 +137,17 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
             mel_input = mel_input.cuda(non_blocking=True)
             mel_lengths = mel_lengths.cuda(non_blocking=True)
             linear_input = linear_input.cuda(non_blocking=True) if c.model == "Tacotron" else None
-            stop_targets = stop_targets.cuda(non_blocking=True)
+            # stop_targets = stop_targets.cuda(non_blocking=True)
             if speaker_ids is not None:
                 speaker_ids = speaker_ids.cuda(non_blocking=True)
 
         # forward pass model
-        decoder_output, postnet_output, alignments, stop_tokens = model(
-            text_input, text_lengths, mel_input, speaker_ids=speaker_ids)
+        decoder_output, postnet_output, alignments = model(
+            text_input, text_lengths, mel_input, speaker_ids=speaker_ids,
+            print_norms=current_step % c.print_step == 0)
 
         # loss computation
-        stop_loss = criterion_st(stop_tokens, stop_targets) if c.stopnet else torch.zeros(1)
+        # stop_loss = criterion_st(stop_tokens, stop_targets) if c.stopnet else torch.zeros(1)
         if c.loss_masking:
             decoder_loss = criterion(decoder_output, mel_input, mel_lengths)
             if c.model == "Tacotron":
@@ -160,8 +161,8 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
             else:
                 postnet_loss = criterion(postnet_output, mel_input)
         loss = decoder_loss + postnet_loss
-        if not c.separate_stopnet and c.stopnet:
-            loss += c.stop_loss_adjustment * stop_loss
+        # if not c.separate_stopnet and c.stopnet:
+        #     loss += c.stop_loss_adjustment * stop_loss
 
         loss.backward()
         optimizer, current_lr = weight_decay(optimizer, c.wd)
@@ -169,13 +170,13 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
         optimizer.step()
 
         # backpass and check the grad norm for stop loss
-        if c.separate_stopnet:
-            stop_loss.backward()
-            optimizer_st, _ = weight_decay(optimizer_st, c.wd)
-            grad_norm_st, _ = check_update(model.decoder.stopnet, 1.0)
-            optimizer_st.step()
-        else:
-            grad_norm_st = 0
+        # if c.separate_stopnet:
+        #     stop_loss.backward()
+        #     optimizer_st, _ = weight_decay(optimizer_st, c.wd)
+        #     grad_norm_st, _ = check_update(model.decoder.stopnet, 1.0)
+        #     optimizer_st.step()
+        # else:
+        #     grad_norm_st = 0
 
         step_time = time.time() - start_time
         epoch_time += step_time
@@ -185,26 +186,25 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
             postnet_loss = reduce_tensor(postnet_loss.data, num_gpus)
             decoder_loss = reduce_tensor(decoder_loss.data, num_gpus)
             loss = reduce_tensor(loss.data, num_gpus)
-            stop_loss = reduce_tensor(stop_loss.data, num_gpus) if c.stopnet else stop_loss
+            # stop_loss = reduce_tensor(stop_loss.data, num_gpus) if c.stopnet else stop_loss
 
         postnet_losses.append(float(postnet_loss.item()))
         decoder_losses.append(float(decoder_loss.item()))
-        stop_losses.append(stop_loss if isinstance(stop_loss, float) else float(
-            stop_loss.item()))
+        # stop_losses.append(stop_loss if isinstance(stop_loss, float) else float(
+        #     stop_loss.item()))
         step_times.append(step_time)
 
         if current_step % c.print_step == 0:
             print(
-                "   | > Step:{}/{}  GlobalStep:{}"
+                "   | > Step:{}/{}  GlobalStep:{} "
                 "PostnetLoss:{:.5f}  "
-                "DecoderLoss:{:.5f}  StopLoss:{:.5f}  GradNorm:{:.5f}  "
-                "GradNormST:{:.5f}  AvgTextLen:{:.1f}  AvgSpecLen:{:.1f}  "
+                "DecoderLoss:{:.5f}  GradNorm:{:.5f}  "
+                "AvgTextLen:{:.1f}  AvgSpecLen:{:.1f}  "
                 "StepTime:{:.2f}  LR:{:.6f}".format(
                     num_iter, batch_n_iter, current_step,
                     np.mean(postnet_losses[-c.print_step:]),
                     np.mean(decoder_losses[-c.print_step:]),
-                    np.mean(stop_losses[-c.print_step:]),
-                    grad_norm, grad_norm_st, avg_text_length,
+                    grad_norm, avg_text_length,
                     avg_spec_length, np.mean(step_times[-c.print_step:]),
                     current_lr),
                 flush=True)
@@ -214,10 +214,8 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
             # Plot Training Iter Stats
                 iter_stats = {"ma_loss_postnet": np.mean(postnet_losses[-c.print_step:]),
                             "ma_loss_decoder": np.mean(decoder_losses[-c.print_step:]),
-                            "ma_stop_loss": np.mean(stop_losses[-c.print_step:]),
                             "lr": current_lr,
                             "grad_norm": grad_norm,
-                            "grad_norm_st": grad_norm_st,
                             "ma_step_time": np.mean(step_times[-c.print_step:])}
                 tb_logger.tb_train_iter_stats(current_step, iter_stats)
 
@@ -249,18 +247,17 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
                                           {'TrainAudio': train_audio},
                                           c.audio["sample_rate"])
 
-    total_losses = [decoder_losses[i] + postnet_losses[i] + stop_losses[i]
+    total_losses = [decoder_losses[i] + postnet_losses[i]
                     for i in range(len(postnet_losses))]
 
     # print epoch stats
     print(
         "   | > EPOCH END -- GlobalStep:{}  AvgTotalLoss:{:.5f}  "
         "AvgPostnetLoss:{:.5f}  AvgDecoderLoss:{:.5f}  "
-        "AvgStopLoss:{:.5f}  EpochTime:{:.2f}  "
+        "EpochTime:{:.2f}  "
         "AvgStepTime:{:.2f}".format(current_step, np.mean(total_losses),
                                     np.mean(postnet_losses),
                                     np.mean(decoder_losses),
-                                    np.mean(stop_losses),
                                     epoch_time,
                                     np.mean(step_times)),
         flush=True)
@@ -270,7 +267,6 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
         # Plot Training Epoch Stats
         epoch_stats = {"loss_postnet": np.mean(postnet_losses),
                     "loss_decoder": np.mean(decoder_losses),
-                    "stop_loss": np.mean(stop_losses),
                     "epoch_time": epoch_time}
         tb_logger.tb_train_epoch_stats(current_step, epoch_stats)
         if c.tb_model_param_stats:
@@ -287,7 +283,7 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
     epoch_time = 0
     avg_postnet_loss = 0
     avg_decoder_loss = 0
-    avg_stop_loss = 0
+    # avg_stop_loss = 0
     print("\n > Validation")
     if c.test_sentences_file is None:
         test_sentences = [
@@ -313,7 +309,7 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                 linear_input = data[3] if c.model == "Tacotron" else None
                 mel_input = data[4]
                 mel_lengths = data[5]
-                stop_targets = data[6]
+                # stop_targets = data[6]
 
                 if c.use_speaker_embedding:
                     speaker_ids = [speaker_mapping[speaker_name]
@@ -323,10 +319,10 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                     speaker_ids = None
 
                 # set stop targets view, we predict a single stop token per r frames prediction
-                stop_targets = stop_targets.view(text_input.shape[0],
-                                                 stop_targets.size(1) // c.r,
-                                                 -1)
-                stop_targets = (stop_targets.sum(2) > 0.0).unsqueeze(2).float().squeeze(2)
+                # stop_targets = stop_targets.view(text_input.shape[0],
+                #                                  stop_targets.size(1) // c.r,
+                #                                  -1)
+                # stop_targets = (stop_targets.sum(2) > 0.0).unsqueeze(2).float().squeeze(2)
 
                 # dispatch data to GPU
                 if use_cuda:
@@ -334,17 +330,17 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                     mel_input = mel_input.cuda()
                     mel_lengths = mel_lengths.cuda()
                     linear_input = linear_input.cuda() if c.model == "Tacotron" else None
-                    stop_targets = stop_targets.cuda()
+                    # stop_targets = stop_targets.cuda()
                     if speaker_ids is not None:
                         speaker_ids = speaker_ids.cuda()
 
                 # forward pass
-                decoder_output, postnet_output, alignments, stop_tokens =\
+                decoder_output, postnet_output, alignments =\
                     model.forward(text_input, text_lengths, mel_input,
                                   speaker_ids=speaker_ids)
 
                 # loss computation
-                stop_loss = criterion_st(stop_tokens, stop_targets) if c.stopnet else torch.zeros(1)
+                # stop_loss = criterion_st(stop_tokens, stop_targets) if c.stopnet else torch.zeros(1)
                 if c.loss_masking:
                     decoder_loss = criterion(decoder_output, mel_input, mel_lengths)
                     if c.model == "Tacotron":
@@ -357,30 +353,29 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                         postnet_loss = criterion(postnet_output, linear_input)
                     else:
                         postnet_loss = criterion(postnet_output, mel_input)
-                loss = decoder_loss + postnet_loss + stop_loss
+                loss = decoder_loss + postnet_loss
 
                 step_time = time.time() - start_time
                 epoch_time += step_time
 
                 if num_iter % c.print_step == 0:
                     print(
-                        "   | > TotalLoss: {:.5f}   PostnetLoss: {:.5f}   DecoderLoss:{:.5f}  "
-                        "StopLoss: {:.5f}  ".format(loss.item(),
+                        "   | > TotalLoss: {:.5f}   PostnetLoss: {:.5f}   "
+                        "DecoderLoss:{:.5f} ".format(loss.item(),
                                                     postnet_loss.item(),
-                                                    decoder_loss.item(),
-                                                    stop_loss.item()),
+                                                    decoder_loss.item()),
                         flush=True)
 
                 # aggregate losses from processes
                 if num_gpus > 1:
                     postnet_loss = reduce_tensor(postnet_loss.data, num_gpus)
                     decoder_loss = reduce_tensor(decoder_loss.data, num_gpus)
-                    if c.stopnet:
-                        stop_loss = reduce_tensor(stop_loss.data, num_gpus)
+                    # if c.stopnet:
+                    #     stop_loss = reduce_tensor(stop_loss.data, num_gpus)
 
                 avg_postnet_loss += float(postnet_loss.item())
                 avg_decoder_loss += float(decoder_loss.item())
-                avg_stop_loss += stop_loss.item()
+                # avg_stop_loss += stop_loss.item()
 
             if args.rank == 0:
                 # Diagnostic visualizations
@@ -406,12 +401,12 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                 # compute average losses
                 avg_postnet_loss /= (num_iter + 1)
                 avg_decoder_loss /= (num_iter + 1)
-                avg_stop_loss /= (num_iter + 1)
+                # avg_stop_loss /= (num_iter + 1)
 
                 # Plot Validation Stats
                 epoch_stats = {"loss_postnet": avg_postnet_loss,
-                               "loss_decoder": avg_decoder_loss,
-                               "stop_loss": avg_stop_loss}
+                               "loss_decoder": avg_decoder_loss}
+                               # "stop_loss": avg_stop_loss}
                 tb_logger.tb_eval_stats(current_step, epoch_stats)
 
     if args.rank == 0 and epoch > c.test_delay_epochs:
@@ -426,8 +421,8 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
             for speaker_name, speaker_id in speaker_mapping.items():
                 for idx, test_sentence in enumerate(test_sentences):
                     try:
-                        wav, alignment, decoder_output, postnet_output, \
-                        stop_tokens = synthesis(
+                        wav, alignment, decoder_output, postnet_output \
+                            = synthesis(
                             model, test_sentence, c, use_cuda, ap,
                             speaker_id=speaker_id,
                             style_wav=style_wav)
@@ -451,8 +446,7 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
             speaker_id = None
             for idx, test_sentence in enumerate(test_sentences):
                 try:
-                    wav, alignment, decoder_output, postnet_output, \
-                    stop_tokens = synthesis(
+                    wav, alignment, decoder_output, postnet_output = synthesis(
                         model, test_sentence, c, use_cuda, ap,
                         speaker_id=speaker_id,
                         style_wav=style_wav)
@@ -507,17 +501,17 @@ def main(args): #pylint: disable=redefined-outer-name
     print(" | > Num output units : {}".format(ap.num_freq), flush=True)
 
     optimizer = optim.Adam(model.parameters(), lr=c.lr, weight_decay=0)
-    if c.stopnet and c.separate_stopnet:
-        optimizer_st = optim.Adam(
-            model.decoder.stopnet.parameters(), lr=c.lr, weight_decay=0)
-    else:
-        optimizer_st = None
+    # if c.stopnet and c.separate_stopnet:
+    #     optimizer_st = optim.Adam(
+    #         model.decoder.stopnet.parameters(), lr=c.lr, weight_decay=0)
+    # else:
+    #     optimizer_st = None
 
     if c.loss_masking:
         criterion = L1LossMasked() if c.model == "Tacotron" else MSELossMasked()
     else:
         criterion = nn.L1Loss() if c.model == "Tacotron" else nn.MSELoss()
-    criterion_st = nn.BCEWithLogitsLoss() if c.stopnet else None
+    # criterion_st = nn.BCEWithLogitsLoss() if c.stopnet else None
 
     if args.restore_path:
         checkpoint = torch.load(args.restore_path)
@@ -545,8 +539,8 @@ def main(args): #pylint: disable=redefined-outer-name
     if use_cuda:
         model = model.cuda()
         criterion.cuda()
-        if criterion_st:
-            criterion_st.cuda()
+        # if criterion_st:
+        #     criterion_st.cuda()
 
     # DISTRUBUTED
     if num_gpus > 1:
@@ -567,10 +561,10 @@ def main(args): #pylint: disable=redefined-outer-name
         best_loss = float('inf')
 
     for epoch in range(0, c.epochs):
-        train_loss, current_step = train(model, criterion, criterion_st,
-                                         optimizer, optimizer_st, scheduler,
+        train_loss, current_step = train(model, criterion, None,
+                                         optimizer, None, scheduler,
                                          ap, epoch)
-        val_loss = evaluate(model, criterion, criterion_st, ap, current_step, epoch)
+        val_loss = evaluate(model, criterion, None, ap, current_step, epoch)
         print(
             " | > Training Loss: {:.5f}   Validation Loss: {:.5f}".format(
                 train_loss, val_loss),
