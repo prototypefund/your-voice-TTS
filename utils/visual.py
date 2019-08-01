@@ -7,7 +7,7 @@ from utils.text import phoneme_to_sequence, sequence_to_phoneme
 
 
 def plot_alignment(alignment, info=None,
-                   text_len=None, spec_len=None):
+                   text_padding_start=None, spec_padding_start=None):
     fig, ax = plt.subplots(figsize=(16, 10))
     im = ax.imshow(
         alignment.T, aspect='auto', origin='lower', interpolation='none')
@@ -20,21 +20,20 @@ def plot_alignment(alignment, info=None,
     # plt.yticks(range(len(text)), list(text))
     plt.tight_layout()
 
-    if text_len is not None:
-        rect = patches.Rectangle((-1, text_len),
+    if text_padding_start is not None:
+        rect = patches.Rectangle((-1, text_padding_start),
                                  alignment.shape[0] + 2,
-                                 alignment.shape[1] - text_len,
+                                 alignment.shape[1] - text_padding_start,
                                  alpha=0.2,
                                  facecolor="orange",
                                  color=None,
                                  edgecolor=None)
         ax.add_patch(rect)
 
-
-    if spec_len is not None:
-        rect = patches.Rectangle((spec_len, -1),
-                                 alignment.shape[0] - spec_len,
-                                 1 + (alignment.shape[1] if text_len is None else text_len),
+    if spec_padding_start is not None:
+        rect = patches.Rectangle((spec_padding_start, -1),
+                                 alignment.shape[0] - spec_padding_start,
+                                 1 + (alignment.shape[1] if text_padding_start is None else text_padding_start),
                                  alpha=0.2,
                                  facecolor="grey",
                                  color=None,

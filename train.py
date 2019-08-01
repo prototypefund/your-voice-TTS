@@ -230,8 +230,8 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
                     "prediction": plot_spectrogram(const_spec, ap),
                     "ground_truth": plot_spectrogram(gt_spec, ap),
                     "alignment": plot_alignment(align_img,
-                                                text_len=text_len,
-                                                spec_len=spec_len)
+                                                text_padding_start=text_len,
+                                                spec_padding_start=spec_len // c.r)
                 }
                 tb_logger.tb_train_figures(current_step, figures)
 
@@ -388,8 +388,8 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                     "prediction": plot_spectrogram(const_spec, ap),
                     "ground_truth": plot_spectrogram(gt_spec, ap),
                     "alignment": plot_alignment(align_img,
-                                                text_len=text_len,
-                                                spec_len=spec_len)
+                                                text_padding_start=text_len,
+                                                spec_padding_start=spec_len // c.r)
                 }
                 tb_logger.tb_eval_figures(current_step, eval_figures)
 
