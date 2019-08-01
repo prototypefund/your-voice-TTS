@@ -14,6 +14,6 @@ class TacotronVisualsTest(unittest.TestCase):
         straight_alignment = np.pad(straight_alignment, ((0, 20), (0, 0)), 'constant')
         real_text_len = 60
         real_spec_len = 90
-        fig = plot_alignment(straight_alignment, text_len=real_text_len,
-                             spec_len=real_spec_len)
+        fig = plot_alignment(straight_alignment, text_padding_start=real_text_len,
+                             spec_padding_start=real_spec_len)
         plt.show(fig)
