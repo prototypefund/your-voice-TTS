@@ -2,10 +2,12 @@ import librosa
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 from utils.text import phoneme_to_sequence, sequence_to_phoneme
 
 
-def plot_alignment(alignment, info=None):
+def plot_alignment(alignment, info=None,
+                   text_len=None, spec_len=None):
     fig, ax = plt.subplots(figsize=(16, 10))
     im = ax.imshow(
         alignment.T, aspect='auto', origin='lower', interpolation='none')
@@ -17,6 +19,28 @@ def plot_alignment(alignment, info=None):
     plt.ylabel('Encoder timestep')
     # plt.yticks(range(len(text)), list(text))
     plt.tight_layout()
+
+    if text_len is not None:
+        rect = patches.Rectangle((-1, text_len),
+                                 alignment.shape[0] + 2,
+                                 alignment.shape[1] - text_len,
+                                 alpha=0.2,
+                                 facecolor="orange",
+                                 color=None,
+                                 edgecolor=None)
+        ax.add_patch(rect)
+
+
+    if spec_len is not None:
+        rect = patches.Rectangle((spec_len, -1),
+                                 alignment.shape[0] - spec_len,
+                                 1 + (alignment.shape[1] if text_len is None else text_len),
+                                 alpha=0.2,
+                                 facecolor="grey",
+                                 color=None,
+                                 edgecolor=None)
+        ax.add_patch(rect)
+
     return fig
 
 

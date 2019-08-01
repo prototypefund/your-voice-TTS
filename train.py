@@ -230,11 +230,15 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
                 const_spec = postnet_output[0].data.cpu().numpy()
                 gt_spec = linear_input[0].data.cpu().numpy() if c.model == "Tacotron" else mel_input[0].data.cpu().numpy()
                 align_img = alignments[0].data.cpu().numpy()
+                text_len = text_lengths[0].data.cpu().numpy()
+                spec_len = mel_lengths[0].data.cpu().numpy()
 
                 figures = {
                     "prediction": plot_spectrogram(const_spec, ap),
                     "ground_truth": plot_spectrogram(gt_spec, ap),
-                    "alignment": plot_alignment(align_img)
+                    "alignment": plot_alignment(align_img,
+                                                text_len=text_len,
+                                                spec_len=spec_len)
                 }
                 tb_logger.tb_train_figures(current_step, figures)
 
@@ -383,11 +387,15 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                 const_spec = postnet_output[idx].data.cpu().numpy()
                 gt_spec = linear_input[idx].data.cpu().numpy() if c.model == "Tacotron" else mel_input[idx].data.cpu().numpy()
                 align_img = alignments[idx].data.cpu().numpy()
+                text_len = text_lengths[idx].data.cpu().numpy()
+                spec_len = mel_lengths[idx].data.cpu().numpy()
 
                 eval_figures = {
                     "prediction": plot_spectrogram(const_spec, ap),
                     "ground_truth": plot_spectrogram(gt_spec, ap),
-                    "alignment": plot_alignment(align_img)
+                    "alignment": plot_alignment(align_img,
+                                                text_len=text_len,
+                                                spec_len=spec_len)
                 }
                 tb_logger.tb_eval_figures(current_step, eval_figures)
 
