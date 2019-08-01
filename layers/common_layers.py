@@ -306,7 +306,8 @@ class SimpleAttention(nn.Module):
         # compute transition agent
         if self.trans_agent:
             ta_input = torch.cat((context, query.squeeze(1), style), dim=-1)
-            self.u = 0.5 + (torch.tanh(self.ta_u(ta_input)) / 3.0)
+            self. u = torch.sigmoid(self.ta_u(ta_input))
+            # self.u = 0.5 + (torch.tanh(self.ta_u(ta_input)) / 3.0)
             #self.sq = 1.25 + (torch.tanh(self.ta_sq(ta_input)) / 4.0)
 
         return context

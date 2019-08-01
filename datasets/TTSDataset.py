@@ -6,7 +6,8 @@ import random
 from torch.utils.data import Dataset
 
 from utils.text import text_to_sequence, phoneme_to_sequence, pad_with_eos_bos
-from utils.data import prepare_data, prepare_tensor, prepare_stop_target
+from utils.data import prepare_data, prepare_tensor, prepare_stop_target, \
+    prepare_alignment_target
 
 
 class MyDataset(Dataset):
@@ -202,6 +203,12 @@ class MyDataset(Dataset):
             stop_targets = prepare_stop_target(stop_targets,
                                                self.outputs_per_step)
 
+            align_targets = [
+                np.array([1.0] * int(text_len)) for text_len in text_lenghts
+            ]
+
+            align_targets = prepare_alignment_target(align_targets)
+
             # PAD sequences with largest length of the batch
             text = prepare_data(text).astype(np.int32)
             wav = prepare_data(wav)
@@ -223,9 +230,10 @@ class MyDataset(Dataset):
             mel = torch.FloatTensor(mel).contiguous()
             mel_lengths = torch.LongTensor(mel_lengths)
             stop_targets = torch.FloatTensor(stop_targets)
+            align_targets = torch.FloatTensor(align_targets)
 
             return text, text_lenghts, speaker_name, linear, mel, mel_lengths, \
-                   stop_targets, item_idxs
+                   stop_targets, align_targets, item_idxs
 
         raise TypeError(("batch must contain tensors, numbers, dicts or lists;\
                          found {}".format(type(batch[0]))))

@@ -81,7 +81,7 @@ def setup_loader(ap, is_val=False, verbose=False):
     return loader
 
 
-def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
+def train(model, criterion, criterion_alignment, optimizer, optimizer_st, scheduler,
           ap, epoch):
     data_loader = setup_loader(ap, is_val=False, verbose=(epoch == 0))
     if c.use_speaker_embedding:
@@ -90,6 +90,7 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
     epoch_time = 0
     postnet_losses = []
     decoder_losses = []
+    alignment_losses = []
     # stop_losses = []
     step_times = []
     print("\n > Epoch {}/{}".format(epoch, c.epochs), flush=True)
@@ -105,6 +106,7 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
         mel_input = data[4]
         mel_lengths = data[5]
         # stop_targets = data[6]
+        alignment_targets = data[7]
         avg_text_length = torch.mean(text_lengths.float())
         avg_spec_length = torch.mean(mel_lengths.float())
 
@@ -138,6 +140,7 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
             mel_lengths = mel_lengths.cuda(non_blocking=True)
             linear_input = linear_input.cuda(non_blocking=True) if c.model == "Tacotron" else None
             # stop_targets = stop_targets.cuda(non_blocking=True)
+            alignment_targets = alignment_targets.cuda(non_blocking=True)
             if speaker_ids is not None:
                 speaker_ids = speaker_ids.cuda(non_blocking=True)
 
@@ -146,8 +149,13 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
             text_input, text_lengths, mel_input, speaker_ids=speaker_ids,
             print_norms=current_step % c.print_step == 0)
 
+        alignments_sum_pred = torch.clamp(torch.sum(alignments, dim=1), 0.0, 1.0)
+
+
         # loss computation
         # stop_loss = criterion_st(stop_tokens, stop_targets) if c.stopnet else torch.zeros(1)
+        alignment_loss = criterion_alignment(alignment_targets,
+                                             alignments_sum_pred)
         if c.loss_masking:
             decoder_loss = criterion(decoder_output, mel_input, mel_lengths)
             if c.model == "Tacotron":
@@ -160,7 +168,7 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
                 postnet_loss = criterion(postnet_output, linear_input)
             else:
                 postnet_loss = criterion(postnet_output, mel_input)
-        loss = decoder_loss + postnet_loss
+        loss = decoder_loss + postnet_loss + alignment_loss
         # if not c.separate_stopnet and c.stopnet:
         #     loss += c.stop_loss_adjustment * stop_loss
 
@@ -190,6 +198,7 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
 
         postnet_losses.append(float(postnet_loss.item()))
         decoder_losses.append(float(decoder_loss.item()))
+        alignment_losses.append(float(alignment_loss.item()))
         # stop_losses.append(stop_loss if isinstance(stop_loss, float) else float(
         #     stop_loss.item()))
         step_times.append(step_time)
@@ -198,12 +207,15 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
             print(
                 "   | > Step:{}/{}  GlobalStep:{} "
                 "PostnetLoss:{:.5f}  "
-                "DecoderLoss:{:.5f}  GradNorm:{:.5f}  "
+                "DecoderLoss:{:.5f}  "
+                "AlignmentLoss:{:.5f}  "
+                "GradNorm:{:.5f}  "
                 "AvgTextLen:{:.1f}  AvgSpecLen:{:.1f}  "
                 "StepTime:{:.2f}  LR:{:.6f}".format(
                     num_iter, batch_n_iter, current_step,
                     np.mean(postnet_losses[-c.print_step:]),
                     np.mean(decoder_losses[-c.print_step:]),
+                    np.mean(alignment_losses[-c.print_step:]),
                     grad_norm, avg_text_length,
                     avg_spec_length, np.mean(step_times[-c.print_step:]),
                     current_lr),
@@ -214,6 +226,7 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
             # Plot Training Iter Stats
                 iter_stats = {"ma_loss_postnet": np.mean(postnet_losses[-c.print_step:]),
                             "ma_loss_decoder": np.mean(decoder_losses[-c.print_step:]),
+                            "ma_loss_alignment": np.mean(alignment_losses[-c.print_step:]),
                             "lr": current_lr,
                             "grad_norm": grad_norm,
                             "ma_step_time": np.mean(step_times[-c.print_step:])}
@@ -251,17 +264,19 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
                                           {'TrainAudio': train_audio},
                                           c.audio["sample_rate"])
 
-    total_losses = [decoder_losses[i] + postnet_losses[i]
+    total_losses = [decoder_losses[i] + postnet_losses[i] + alignment_losses[i]
                     for i in range(len(postnet_losses))]
 
     # print epoch stats
     print(
         "   | > EPOCH END -- GlobalStep:{}  AvgTotalLoss:{:.5f}  "
         "AvgPostnetLoss:{:.5f}  AvgDecoderLoss:{:.5f}  "
+        "AvgAlignmentLoss:{:.5f}  "
         "EpochTime:{:.2f}  "
         "AvgStepTime:{:.2f}".format(current_step, np.mean(total_losses),
                                     np.mean(postnet_losses),
                                     np.mean(decoder_losses),
+                                    np.mean(alignment_losses),
                                     epoch_time,
                                     np.mean(step_times)),
         flush=True)
@@ -279,7 +294,7 @@ def train(model, criterion, criterion_st, optimizer, optimizer_st, scheduler,
     return np.mean(postnet_losses), current_step
 
 
-def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
+def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
     data_loader = setup_loader(ap, is_val=True)
     if c.use_speaker_embedding:
         speaker_mapping = load_speaker_mapping(OUT_PATH)
@@ -287,7 +302,7 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
     epoch_time = 0
     avg_postnet_loss = 0
     avg_decoder_loss = 0
-    # avg_stop_loss = 0
+    avg_alignment_loss = 0
     print("\n > Validation")
     if c.test_sentences_file is None:
         test_sentences = [
@@ -314,6 +329,7 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                 mel_input = data[4]
                 mel_lengths = data[5]
                 # stop_targets = data[6]
+                alignment_targets = data[7]
 
                 if c.use_speaker_embedding:
                     speaker_ids = [speaker_mapping[speaker_name]
@@ -335,6 +351,7 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                     mel_lengths = mel_lengths.cuda()
                     linear_input = linear_input.cuda() if c.model == "Tacotron" else None
                     # stop_targets = stop_targets.cuda()
+                    alignment_targets = alignment_targets.cuda()
                     if speaker_ids is not None:
                         speaker_ids = speaker_ids.cuda()
 
@@ -343,8 +360,14 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                     model.forward(text_input, text_lengths, mel_input,
                                   speaker_ids=speaker_ids)
 
+                alignments_sum_pred = torch.clamp(torch.sum(alignments, dim=1),
+                                                  0.0, 1.0)
+
                 # loss computation
-                # stop_loss = criterion_st(stop_tokens, stop_targets) if c.stopnet else torch.zeros(1)
+                # stop_loss = criterion_st(stop_tokens, stop_targets) if
+                # c.stopnet else torch.zeros(1)
+                alignment_loss = criterion_alignment(alignment_targets,
+                                                     alignments_sum_pred)
                 if c.loss_masking:
                     decoder_loss = criterion(decoder_output, mel_input, mel_lengths)
                     if c.model == "Tacotron":
@@ -357,7 +380,7 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                         postnet_loss = criterion(postnet_output, linear_input)
                     else:
                         postnet_loss = criterion(postnet_output, mel_input)
-                loss = decoder_loss + postnet_loss
+                loss = decoder_loss + postnet_loss + alignment_loss
 
                 step_time = time.time() - start_time
                 epoch_time += step_time
@@ -365,9 +388,11 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                 if num_iter % c.print_step == 0:
                     print(
                         "   | > TotalLoss: {:.5f}   PostnetLoss: {:.5f}   "
-                        "DecoderLoss:{:.5f} ".format(loss.item(),
-                                                    postnet_loss.item(),
-                                                    decoder_loss.item()),
+                        "DecoderLoss:{:.5f}  "
+                        "AlignmentLoss:{:.5f}".format(loss.item(),
+                                                      postnet_loss.item(),
+                                                      decoder_loss.item(),
+                                                      alignment_loss.item()),
                         flush=True)
 
                 # aggregate losses from processes
@@ -379,7 +404,7 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
 
                 avg_postnet_loss += float(postnet_loss.item())
                 avg_decoder_loss += float(decoder_loss.item())
-                # avg_stop_loss += stop_loss.item()
+                avg_alignment_loss += alignment_loss.item()
 
             if args.rank == 0:
                 # Diagnostic visualizations
@@ -409,12 +434,12 @@ def evaluate(model, criterion, criterion_st, ap, current_step, epoch):
                 # compute average losses
                 avg_postnet_loss /= (num_iter + 1)
                 avg_decoder_loss /= (num_iter + 1)
-                # avg_stop_loss /= (num_iter + 1)
+                avg_alignment_loss /= (num_iter + 1)
 
                 # Plot Validation Stats
                 epoch_stats = {"loss_postnet": avg_postnet_loss,
-                               "loss_decoder": avg_decoder_loss}
-                               # "stop_loss": avg_stop_loss}
+                               "loss_decoder": avg_decoder_loss,
+                               "alignment_loss": avg_alignment_loss}
                 tb_logger.tb_eval_stats(current_step, epoch_stats)
 
     if args.rank == 0 and epoch > c.test_delay_epochs:
@@ -519,7 +544,7 @@ def main(args): #pylint: disable=redefined-outer-name
         criterion = L1LossMasked() if c.model == "Tacotron" else MSELossMasked()
     else:
         criterion = nn.L1Loss() if c.model == "Tacotron" else nn.MSELoss()
-    # criterion_st = nn.BCEWithLogitsLoss() if c.stopnet else None
+    criterion_alignment = nn.BCELoss()
 
     if args.restore_path:
         checkpoint = torch.load(args.restore_path)
@@ -569,10 +594,10 @@ def main(args): #pylint: disable=redefined-outer-name
         best_loss = float('inf')
 
     for epoch in range(0, c.epochs):
-        train_loss, current_step = train(model, criterion, None,
+        train_loss, current_step = train(model, criterion, criterion_alignment,
                                          optimizer, None, scheduler,
                                          ap, epoch)
-        val_loss = evaluate(model, criterion, None, ap, current_step, epoch)
+        val_loss = evaluate(model, criterion, criterion_alignment, ap, current_step, epoch)
         print(
             " | > Training Loss: {:.5f}   Validation Loss: {:.5f}".format(
                 train_loss, val_loss),
