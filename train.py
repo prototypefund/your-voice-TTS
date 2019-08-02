@@ -168,7 +168,7 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
                 postnet_loss = criterion(postnet_output, linear_input)
             else:
                 postnet_loss = criterion(postnet_output, mel_input)
-        loss = decoder_loss + postnet_loss + alignment_loss
+        loss = decoder_loss + postnet_loss + 0.1 * alignment_loss
         # if not c.separate_stopnet and c.stopnet:
         #     loss += c.stop_loss_adjustment * stop_loss
 

@@ -88,7 +88,7 @@ def mailabs(root_path, meta_files=None):
             continue
         speaker_name = speaker_name_match.group("speaker_name")
         print(" | > {}".format(csv_file))
-        with open(txt_file, 'r') as ttf:
+        with open(txt_file, 'r', encoding="utf8") as ttf:
             for line in ttf:
                 cols = line.split('|')
                 if meta_files is None:

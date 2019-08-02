@@ -17,8 +17,7 @@ class SlimTaco(nn.Module):
                  prenet_type="original",
                  prenet_dropout=True,
                  trans_agent=False,
-                 use_gst=False,
-                 memory_size=5):
+                 use_gst=False):
         super(SlimTaco, self).__init__()
         self.n_mel_channels = 80
         self.n_frames_per_step = r
@@ -42,7 +41,7 @@ class SlimTaco(nn.Module):
                            embedding_dim=self.style_dim)
         self.decoder = Decoder(self.embedding_size, self.n_mel_channels, r, self.style_dim,
                                prenet_type, prenet_dropout,
-                               trans_agent, memory_size)
+                               trans_agent)
         self.postnet = Postnet(self.n_mel_channels, dropout=0.15)
 
     @staticmethod

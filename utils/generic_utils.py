@@ -293,8 +293,7 @@ def setup_model(num_chars, num_speakers, c):
             prenet_type=c.prenet_type,
             prenet_dropout=c.prenet_dropout,
             trans_agent=c.transition_agent,
-            use_gst=c.use_gst,
-            memory_size=c.memory_size)
+            use_gst=c.use_gst)
     else:
         raise ValueError(f"unknown model type: {c.model.lower()}")
     return model

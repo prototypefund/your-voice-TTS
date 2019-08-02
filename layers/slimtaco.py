@@ -102,13 +102,12 @@ class Decoder(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
     def __init__(self, in_features, memory_dim, r, style_dim,
-                 prenet_type, prenet_dropout, trans_agent, memory_size):
+                 prenet_type, prenet_dropout, trans_agent):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
         self.r = r
-        self.memory_size = memory_size if memory_size > 0 else r
         self.encoder_embedding_dim = in_features
-        self.query_dim = 512
+        self.query_dim = 256
         self.style_dim = style_dim
         self.decoder_rnn_dim = 512
         self.prenet_dim = 256
@@ -117,7 +116,7 @@ class Decoder(nn.Module):
         self.p_attention_dropout = 0.1
         self.p_decoder_dropout = 0.1
 
-        self.prenet = Prenet(self.memory_dim * memory_size, prenet_type,
+        self.prenet = Prenet(self.memory_dim * r, prenet_type,
                              prenet_dropout,
                              [self.prenet_dim, self.prenet_dim], bias=False)
 
@@ -136,7 +135,7 @@ class Decoder(nn.Module):
                                         self.memory_dim * r)
 
         self.attention_rnn_init = nn.Embedding(1, self.query_dim)
-        self.memory_init = nn.Embedding(1, self.memory_dim * self.memory_size)
+        self.memory_init = nn.Embedding(1, self.memory_dim * self.r)
         self.decoder_rnn_inits = nn.Embedding(1, self.decoder_rnn_dim)
         self.memory_truncated = None
 
@@ -170,35 +169,11 @@ class Decoder(nn.Module):
         self.inputs = inputs
         self.mask = mask
 
-    def _unfold_memory(self, memory):
-        """Sliding window over memory to get all memory blocks."""
-        B = memory.shape[0]
-        # memory (B, timesteps, memory_dim)
-
-        # unfold operator is like a sliding window size mem_size, step r
-        # timesteps is divisible by r; guaranteed by data loader
-        memory = memory.unfold(1, self.memory_size, self.r)
-        # memory (B, T_decoder = timesteps // r, memory_dim, self.r)
-
-        memory = memory.contiguous().view(B, -1,
-                                          self.memory_dim * self.memory_size)
-        # memory (B, T_decoder, memory_dim * self.r)
-
-        # switch to time first
-        memory = memory.transpose(0, 1)
-        # memory (T_decoder, B, memory_dim * r)
-        return memory
-
-    def _update_memory(self, memory, decoder_output):
-        if self.memory_size > 0 and \
-                decoder_output.shape[-1] < self.memory_size * self.memory_dim:
-            new_memory = torch.cat(
-                (memory[:, self.r * self.memory_dim:],
-                 decoder_output[:, -self.memory_size * self.memory_dim:]),
-                dim=-1)
-        else:
-            new_memory = decoder_output
-        return new_memory
+    def _reshape_memory(self, memory):
+        memory_steps = memory.view(
+            memory.size(0), int(memory.size(1) / self.r), -1)
+        memory_steps = memory_steps.transpose(0, 1)
+        return memory_steps
 
     def _parse_outputs(self, outputs, alignments):
         alignments = torch.stack(alignments).transpose(0, 1)
@@ -234,19 +209,17 @@ class Decoder(nn.Module):
         return decoder_output, self.attention.alpha
 
     def forward(self, inputs, memory, style, mask):
-        memory_start = self.get_memory_start_frame(inputs)
-        memory_start = memory_start.view(inputs.size(0),
-                                         self.memory_size, self.memory_dim)
-        memory = torch.cat((memory_start, memory), dim=1)
-        memories = self._unfold_memory(memory)
-        memories = self.prenet(memories)
+        memory_start = self.get_memory_start_frame(inputs).unsqueeze(0)
+        memory_steps = self._reshape_memory(memory)
+        memory_steps = torch.cat((memory_start, memory_steps), dim=0)
+        memory_steps = self.prenet(memory_steps)
 
         self._init_states(inputs, style, mask=mask)
         self.attention.init_states(inputs)
 
         outputs, alignments = [], []
-        while len(outputs) < memories.size(0) - 1:
-            memory = memories[len(outputs)]
+        while len(outputs) < memory_steps.size(0) - 1:
+            memory = memory_steps[len(outputs)]
             mel_output, attention_weights = self.decode(memory)
             outputs += [mel_output]
             alignments += [attention_weights]
@@ -267,7 +240,7 @@ class Decoder(nn.Module):
             output, alignment = self.decode(processed_memory)
             outputs += [output]
             alignments += [alignment]
-            memory = self._update_memory(memory, outputs[-1])
+            memory = output
 
             if F.cosine_similarity(self.context, inputs[:, -1, :]) > 0.9:
                 break
@@ -297,8 +270,7 @@ class Decoder(nn.Module):
             mel_output, stop_token, alignment = self.decode(memory)
             outputs += [mel_output]
             alignments += [alignment]
-            self.memory_truncated = self._update_memory(self.memory_truncated,
-                                                        outputs[-1])
+            self.memory_truncated = mel_output
 
             if F.cosine_similarity(self.context, inputs[:, -1, :]) > 0.9:
                 break
