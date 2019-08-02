@@ -51,7 +51,7 @@ def _pad_alignment_target(x, length):
 
 def prepare_alignment_target(inputs):
     max_len = max((x.shape[0] for x in inputs))
-    return np.stack([_pad_stop_target(x, max_len) for x in inputs])
+    return np.stack([_pad_alignment_target(x, max_len) for x in inputs])
 
 
 def pad_per_step(inputs, pad_len):
