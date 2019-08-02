@@ -14,15 +14,9 @@ class SlimTaco(nn.Module):
                  num_chars,
                  num_speakers,
                  r,
-                 attn_win=False,
-                 attn_norm="softmax",
                  prenet_type="original",
                  prenet_dropout=True,
-                 forward_attn=False,
                  trans_agent=False,
-                 forward_attn_mask=False,
-                 location_attn=True,
-                 separate_stopnet=True,
                  use_gst=False,
                  memory_size=5):
         super(SlimTaco, self).__init__()
@@ -41,7 +35,7 @@ class SlimTaco(nn.Module):
             self.speaker_embedding = nn.Embedding(num_speakers,
                                                   self.embedding_size)
             self.speaker_embedding.weight.data.normal_(0, 0.3)
-        self.encoder = Encoder(self.embedding_size, dropout=0.25)
+        self.encoder = Encoder(self.embedding_size, dropout=0.15)
         if self.use_gst:
             self.gst = GST(num_mel=self.n_mel_channels, num_heads=4,
                            num_style_tokens=16,
@@ -49,7 +43,7 @@ class SlimTaco(nn.Module):
         self.decoder = Decoder(self.embedding_size, self.n_mel_channels, r, self.style_dim,
                                prenet_type, prenet_dropout,
                                trans_agent, memory_size)
-        self.postnet = Postnet(self.n_mel_channels, dropout=0.25)
+        self.postnet = Postnet(self.n_mel_channels, dropout=0.15)
 
     @staticmethod
     def shape_outputs(mel_outputs, mel_outputs_postnet, alignments):

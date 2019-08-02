@@ -154,8 +154,8 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
 
         # loss computation
         # stop_loss = criterion_st(stop_tokens, stop_targets) if c.stopnet else torch.zeros(1)
-        alignment_loss = criterion_alignment(alignment_targets,
-                                             alignments_sum_pred)
+        alignment_loss = criterion_alignment(alignments_sum_pred,
+                                             alignment_targets)
         if c.loss_masking:
             decoder_loss = criterion(decoder_output, mel_input, mel_lengths)
             if c.model == "Tacotron":
@@ -240,11 +240,11 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
                                     epoch)
 
                 # Diagnostic visualizations
-                const_spec = postnet_output[0].data.cpu().numpy()
-                gt_spec = linear_input[0].data.cpu().numpy() if c.model == "Tacotron" else mel_input[0].data.cpu().numpy()
-                align_img = alignments[0].data.cpu().numpy()
-                text_len = text_lengths[0].data.cpu().numpy()
-                spec_len = mel_lengths[0].data.cpu().numpy()
+                const_spec = postnet_output[-1].data.cpu().numpy()
+                gt_spec = linear_input[-1].data.cpu().numpy() if c.model == "Tacotron" else mel_input[0].data.cpu().numpy()
+                align_img = alignments[-1].data.cpu().numpy()
+                text_len = text_lengths[-1].data.cpu().numpy()
+                spec_len = mel_lengths[-1].data.cpu().numpy()
 
                 figures = {
                     "prediction": plot_spectrogram(const_spec, ap),
@@ -306,12 +306,14 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
     print("\n > Validation")
     if c.test_sentences_file is None:
         test_sentences = [
-            "Am Ende gibt es nur einen Verlierer: die SPD. Die Sozialdemokraten haben mit ihrem 'Nein' zu Ursula von der Leyen weder sich noch dem Spitzenkandidatenprinzip geholfen.",
+            # "Am Ende gibt es nur einen Verlierer: die SPD. Die Sozialdemokraten haben mit ihrem 'Nein' zu Ursula von der Leyen weder sich noch dem Spitzenkandidatenprinzip geholfen.",
             "In Kitas, Schulen und Asylunterkünften soll künftig ein Impfschutz verpflichtend sein, auch für Angestellte.",
             "Es tut mir leid Thomas, aber ich kann das leider nicht tun.",
             "Auf den sieben Robbenklippen sitzen sieben Robbensippen, die sich in die Rippen stippen, bis sie von den Klippen kippen.",
-            "Ich esse meine Suppe nicht! Nein, meine Suppe ess' ich nicht!"
-            "Hallo Frau Peters, ich bin Herr Müller."
+            # "Ich esse meine Suppe nicht! Nein, meine Suppe ess' ich nicht!",
+            # "Hallo Frau Peters, ich bin Herr Müller.",
+            "Da zogen sie sich ihre besten Kleider an und gingen in die große weiße Kirche.",
+            "Soll mich doch wundern, wo der Bengel wieder steckt! Tom!"
         ]
     else:
         with open(c.test_sentences_file, "r") as f:
@@ -366,8 +368,8 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
                 # loss computation
                 # stop_loss = criterion_st(stop_tokens, stop_targets) if
                 # c.stopnet else torch.zeros(1)
-                alignment_loss = criterion_alignment(alignment_targets,
-                                                     alignments_sum_pred)
+                alignment_loss = criterion_alignment(alignments_sum_pred,
+                                                     alignment_targets)
                 if c.loss_masking:
                     decoder_loss = criterion(decoder_output, mel_input, mel_lengths)
                     if c.model == "Tacotron":
@@ -408,12 +410,12 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
 
             if args.rank == 0:
                 # Diagnostic visualizations
-                idx = np.random.randint(mel_input.shape[0])
-                const_spec = postnet_output[idx].data.cpu().numpy()
-                gt_spec = linear_input[idx].data.cpu().numpy() if c.model == "Tacotron" else mel_input[idx].data.cpu().numpy()
-                align_img = alignments[idx].data.cpu().numpy()
-                text_len = text_lengths[idx].data.cpu().numpy()
-                spec_len = mel_lengths[idx].data.cpu().numpy()
+                #idx = np.random.randint(mel_input.shape[0])
+                const_spec = postnet_output[-1].data.cpu().numpy()
+                gt_spec = linear_input[-1].data.cpu().numpy() if c.model == "Tacotron" else mel_input[-1].data.cpu().numpy()
+                align_img = alignments[-1].data.cpu().numpy()
+                text_len = text_lengths[-1].data.cpu().numpy()
+                spec_len = mel_lengths[-1].data.cpu().numpy()
 
                 eval_figures = {
                     "prediction": plot_spectrogram(const_spec, ap),
