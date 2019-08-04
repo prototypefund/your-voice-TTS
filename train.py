@@ -59,7 +59,7 @@ def setup_loader(ap, is_val=False, verbose=False):
             c.text_cleaner,
             meta_data=meta_data_eval if is_val else meta_data_train,
             ap=ap,
-            batch_group_size=0 if is_val else c.batch_group_size * c.batch_size,
+            batch_group_size=c.batch_group_size * c.batch_size,
             min_seq_len=c.min_seq_len,
             max_seq_len=c.max_seq_len,
             phoneme_cache_path=c.phoneme_cache_path,
@@ -107,6 +107,7 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
         mel_lengths = data[5]
         # stop_targets = data[6]
         alignment_targets = data[7]
+        alignment_mask = data[8]
         avg_text_length = torch.mean(text_lengths.float())
         avg_spec_length = torch.mean(mel_lengths.float())
 
@@ -141,6 +142,7 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
             linear_input = linear_input.cuda(non_blocking=True) if c.model == "Tacotron" else None
             # stop_targets = stop_targets.cuda(non_blocking=True)
             alignment_targets = alignment_targets.cuda(non_blocking=True)
+            alignment_mask = alignment_mask.cuda(non_blocking=True)
             if speaker_ids is not None:
                 speaker_ids = speaker_ids.cuda(non_blocking=True)
 
@@ -149,7 +151,8 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
             text_input, text_lengths, mel_input, speaker_ids=speaker_ids,
             print_norms=current_step % c.print_step == 0)
 
-        alignments_sum_pred = torch.clamp(torch.sum(alignments, dim=1), 0.0, 1.0)
+        alignments_masked = alignments * alignment_mask.float()
+        alignments_sum_pred = torch.clamp(torch.sum(alignments_masked, dim=1), 0.0, 1.0)
 
 
         # loss computation
@@ -168,7 +171,8 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
                 postnet_loss = criterion(postnet_output, linear_input)
             else:
                 postnet_loss = criterion(postnet_output, mel_input)
-        loss = decoder_loss + postnet_loss + 0.1 * alignment_loss
+        loss = decoder_loss + postnet_loss + \
+               c.alignment_loss_reg * alignment_loss
         # if not c.separate_stopnet and c.stopnet:
         #     loss += c.stop_loss_adjustment * stop_loss
 
@@ -241,7 +245,7 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
 
                 # Diagnostic visualizations
                 const_spec = postnet_output[-1].data.cpu().numpy()
-                gt_spec = linear_input[-1].data.cpu().numpy() if c.model == "Tacotron" else mel_input[0].data.cpu().numpy()
+                gt_spec = linear_input[-1].data.cpu().numpy() if c.model == "Tacotron" else mel_input[-1].data.cpu().numpy()
                 align_img = alignments[-1].data.cpu().numpy()
                 text_len = text_lengths[-1].data.cpu().numpy()
                 spec_len = mel_lengths[-1].data.cpu().numpy()
@@ -546,7 +550,7 @@ def main(args): #pylint: disable=redefined-outer-name
         criterion = L1LossMasked() if c.model == "Tacotron" else MSELossMasked()
     else:
         criterion = nn.L1Loss() if c.model == "Tacotron" else nn.MSELoss()
-    criterion_alignment = nn.BCELoss()
+    criterion_alignment = nn.MSELoss()
 
     if args.restore_path:
         checkpoint = torch.load(args.restore_path)

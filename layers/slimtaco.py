@@ -102,12 +102,12 @@ class Decoder(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
     def __init__(self, in_features, memory_dim, r, style_dim,
-                 prenet_type, prenet_dropout, trans_agent):
+                 prenet_type, prenet_dropout, query_dim, transition_style):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
         self.r = r
         self.encoder_embedding_dim = in_features
-        self.query_dim = 256
+        self.query_dim = query_dim
         self.style_dim = style_dim
         self.decoder_rnn_dim = 512
         self.prenet_dim = 256
@@ -126,7 +126,7 @@ class Decoder(nn.Module):
         self.attention = SimpleAttention(query_dim=self.query_dim,
                                          embedding_dim=in_features,
                                          style_dim=self.style_dim,
-                                         trans_agent=trans_agent)
+                                         transition_style=transition_style)
 
         self.decoder_rnn = nn.LSTMCell(self.query_dim + in_features + self.style_dim,
                                        self.decoder_rnn_dim, 1)
@@ -235,16 +235,16 @@ class Decoder(nn.Module):
         self.attention.init_states(inputs)
 
         outputs, alignments = [], []
-        while True:
+        alignment_mass_on_last_char = 0.0
+        while alignment_mass_on_last_char < 1.0:
             processed_memory = self.prenet(memory)
             output, alignment = self.decode(processed_memory)
             outputs += [output]
             alignments += [alignment]
+            alignment_mass_on_last_char += alignment[0, -1]
             memory = output
 
-            if F.cosine_similarity(self.context, inputs[:, -1, :]) > 0.9:
-                break
-            elif len(outputs) == self.max_decoder_steps:
+            if len(outputs) == self.max_decoder_steps:
                 print("   | > Decoder stopped with 'max_decoder_steps")
                 break
 
@@ -265,16 +265,16 @@ class Decoder(nn.Module):
 
         self.attention.init_states(inputs)
         outputs, alignments = [], []
-        while True:
+        alignment_mass_on_last_char = 0.0
+        while alignment_mass_on_last_char < 1.0:
             memory = self.prenet(self.memory_truncated)
             mel_output, stop_token, alignment = self.decode(memory)
             outputs += [mel_output]
             alignments += [alignment]
+            alignment_mass_on_last_char += alignment[0, -1]
             self.memory_truncated = mel_output
 
-            if F.cosine_similarity(self.context, inputs[:, -1, :]) > 0.9:
-                break
-            elif len(outputs) == self.max_decoder_steps:
+            if len(outputs) == self.max_decoder_steps:
                 print("   | > Decoder stopped with 'max_decoder_steps")
                 break
 

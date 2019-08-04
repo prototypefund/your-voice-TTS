@@ -270,11 +270,11 @@ class Attention(nn.Module):
 class SimpleAttention(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
-    def __init__(self, query_dim, embedding_dim, style_dim, trans_agent):
+    def __init__(self, query_dim, embedding_dim, style_dim, transition_style):
         super(SimpleAttention, self).__init__()
-        self.trans_agent = trans_agent
-        if trans_agent:
-            self.ta_u = nn.Linear(query_dim + embedding_dim + style_dim, 1, bias=True)
+        self.transition_style = transition_style
+        self.ta_u = nn.Linear(query_dim + embedding_dim + style_dim, 1, bias=True)
+        if transition_style == "dynamicsq":
             self.ta_sq = nn.Linear(query_dim + embedding_dim + style_dim, 1, bias=True)
         self.alpha = None
         self.u = None
@@ -303,11 +303,14 @@ class SimpleAttention(nn.Module):
         context = torch.bmm(self.alpha.unsqueeze(1), inputs)
         context = context.squeeze(1)
 
-        # compute transition agent
-        if self.trans_agent:
-            ta_input = torch.cat((context, query.squeeze(1), style), dim=-1)
-            # self. u = torch.sigmoid(self.ta_u(ta_input))
+        # compute transition
+        ta_input = torch.cat((context, query.squeeze(1), style), dim=-1)
+        if self.transition_style == "staticsq":
+            self. u = torch.sigmoid(self.ta_u(ta_input))
+        elif self.transition_style == "dynamicsq":
             self.u = 0.5 + (torch.tanh(self.ta_u(ta_input)) * 0.4)
             self.sq = 1.3 + (torch.tanh(self.ta_sq(ta_input)) * 0.20)
+        else:
+            raise ValueError(f"Transition style ${self.transition_style} unknown")
 
         return context

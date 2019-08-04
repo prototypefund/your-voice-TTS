@@ -292,7 +292,10 @@ def setup_model(num_chars, num_speakers, c):
             r=c.r,
             prenet_type=c.prenet_type,
             prenet_dropout=c.prenet_dropout,
-            trans_agent=c.transition_agent,
+            encoder_dropout=c.encoder_dropout,
+            postnet_dropout=c.postnet_dropout,
+            query_dim=c.query_dim,
+            transition_style=c.transition_style,
             use_gst=c.use_gst)
     else:
         raise ValueError(f"unknown model type: {c.model.lower()}")

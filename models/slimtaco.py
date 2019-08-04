@@ -4,6 +4,7 @@ import torch
 
 from layers.slim_gst_layers import GST
 from layers.slimtaco import Encoder, Decoder, Postnet
+from layers.style_encoder import GlobalStyleTokens
 from utils.generic_utils import sequence_mask
 
 
@@ -16,7 +17,10 @@ class SlimTaco(nn.Module):
                  r,
                  prenet_type="original",
                  prenet_dropout=True,
-                 trans_agent=False,
+                 encoder_dropout=0.25,
+                 postnet_dropout=0.25,
+                 query_dim=512,
+                transition_style="staticsq",
                  use_gst=False):
         super(SlimTaco, self).__init__()
         self.n_mel_channels = 80
@@ -34,15 +38,20 @@ class SlimTaco(nn.Module):
             self.speaker_embedding = nn.Embedding(num_speakers,
                                                   self.embedding_size)
             self.speaker_embedding.weight.data.normal_(0, 0.3)
-        self.encoder = Encoder(self.embedding_size, dropout=0.15)
+        self.encoder = Encoder(self.embedding_size, dropout=encoder_dropout)
         if self.use_gst:
             self.gst = GST(num_mel=self.n_mel_channels, num_heads=4,
                            num_style_tokens=16,
                            embedding_dim=self.style_dim)
+            # self.gst = GlobalStyleTokens(num_mel=self.n_mel_channels,
+            #                              num_style_tokens=10,
+            #                              token_dim=128,
+            #                              prosody_encoding_dim=128,
+            #                              scoring_function_name="tanh",
+            #                              use_separate_keys=True)
         self.decoder = Decoder(self.embedding_size, self.n_mel_channels, r, self.style_dim,
-                               prenet_type, prenet_dropout,
-                               trans_agent)
-        self.postnet = Postnet(self.n_mel_channels, dropout=0.15)
+                               prenet_type, prenet_dropout, query_dim, transition_style)
+        self.postnet = Postnet(self.n_mel_channels, dropout=postnet_dropout)
 
     @staticmethod
     def shape_outputs(mel_outputs, mel_outputs_postnet, alignments):

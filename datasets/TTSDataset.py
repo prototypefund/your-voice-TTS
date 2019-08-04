@@ -5,6 +5,7 @@ import torch
 import random
 from torch.utils.data import Dataset
 
+from utils.generic_utils import sequence_mask
 from utils.text import text_to_sequence, phoneme_to_sequence, pad_with_eos_bos
 from utils.data import prepare_data, prepare_tensor, prepare_stop_target, \
     prepare_alignment_target
@@ -192,7 +193,7 @@ class MyDataset(Dataset):
             mel = [self.ap.melspectrogram(w).astype('float32') for w in wav]
             linear = [self.ap.spectrogram(w).astype('float32') for w in wav]
 
-            mel_lengths = [m.shape[1] + 1 for m in mel]  # +1 for zero-frame
+            mel_lengths = [m.shape[1] for m in mel]
 
             # compute 'stop token' targets
             stop_targets = [
@@ -223,6 +224,22 @@ class MyDataset(Dataset):
             linear = linear.transpose(0, 2, 1)
             mel = mel.transpose(0, 2, 1)
 
+            # mask that zeros out alignment in the spec padding zone, and for
+            # the border of text padding
+            align_mask = np.ones_like(align_targets)
+            # finding those alignment that need masking (the longest don't)
+            textlen_needs_masking = (text_lenghts < align_targets.shape[1]).nonzero().squeeze(1)
+            # setting the mask at the border of text and text padding
+            align_mask[textlen_needs_masking, text_lenghts[textlen_needs_masking]] = 0
+            align_mask = np.expand_dims(align_mask, 1)
+            max_decoder_steps = mel.shape[1] // self.outputs_per_step
+            align_mask = np.repeat(align_mask, max_decoder_steps, 1)
+            align_mask = torch.ByteTensor(align_mask)
+            decoder_steps = torch.ceil(torch.LongTensor(mel_lengths).float() / 3).long()
+            seq_mask = sequence_mask(decoder_steps, max_decoder_steps)
+            seq_mask = seq_mask.unsqueeze(2).expand(-1, -1, align_mask.size(2))
+            align_mask = align_mask * seq_mask
+
             # convert things to pytorch
             text_lenghts = torch.LongTensor(text_lenghts)
             text = torch.LongTensor(text)
@@ -233,7 +250,7 @@ class MyDataset(Dataset):
             align_targets = torch.FloatTensor(align_targets)
 
             return text, text_lenghts, speaker_name, linear, mel, mel_lengths, \
-                   stop_targets, align_targets, item_idxs
+                   stop_targets, align_targets, align_mask, item_idxs
 
         raise TypeError(("batch must contain tensors, numbers, dicts or lists;\
                          found {}".format(type(batch[0]))))
