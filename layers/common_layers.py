@@ -270,12 +270,12 @@ class Attention(nn.Module):
 class SimpleAttention(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
-    def __init__(self, query_dim, embedding_dim, style_dim, transition_style):
+    def __init__(self, query_dim, embedding_dim, style_dim, speaker_dim, transition_style):
         super(SimpleAttention, self).__init__()
         self.transition_style = transition_style
-        self.ta_u = nn.Linear(query_dim + embedding_dim + style_dim, 1, bias=True)
+        self.ta_u = nn.Linear(query_dim + embedding_dim + style_dim + speaker_dim, 1, bias=True)
         if transition_style == "dynamicsq":
-            self.ta_sq = nn.Linear(query_dim + embedding_dim + style_dim, 1, bias=True)
+            self.ta_sq = nn.Linear(query_dim + embedding_dim + style_dim + speaker_dim, 1, bias=True)
         self.alpha = None
         self.u = None
         self.sq = None
@@ -289,7 +289,7 @@ class SimpleAttention(nn.Module):
         self.u = (0.5 * torch.ones((B, 1))).to(inputs.device)
         self.sq = (1.4 * torch.ones((B, 1))).to(inputs.device)
 
-    def forward(self, query, inputs, style):
+    def forward(self, query, inputs, style, speaker):
         fwd_shifted_alpha = F.pad(
             self.alpha[:, :-1].clone().to(inputs.device),
             [1, 0, 0, 0])
@@ -304,12 +304,12 @@ class SimpleAttention(nn.Module):
         context = context.squeeze(1)
 
         # compute transition
-        ta_input = torch.cat((context, query.squeeze(1), style), dim=-1)
+        ta_input = torch.cat((context, query.squeeze(1), style, speaker), dim=-1)
         if self.transition_style == "staticsq":
             self. u = torch.sigmoid(self.ta_u(ta_input))
         elif self.transition_style == "dynamicsq":
-            self.u = 0.5 + (torch.tanh(self.ta_u(ta_input)) * 0.4)
-            self.sq = 1.3 + (torch.tanh(self.ta_sq(ta_input)) * 0.20)
+            self.u = torch.sigmoid(self.ta_u(ta_input))
+            self.sq = 1.0 + torch.sigmoid(self.ta_sq(ta_input))
         else:
             raise ValueError(f"Transition style ${self.transition_style} unknown")
 

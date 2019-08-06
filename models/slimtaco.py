@@ -28,6 +28,7 @@ class SlimTaco(nn.Module):
         self.use_gst = use_gst
         self.embedding_size = 256
         self.style_dim = 128
+        self.speaker_dim = 64
 
         self.embedding = nn.Embedding(num_chars, self.embedding_size)
 
@@ -36,7 +37,7 @@ class SlimTaco(nn.Module):
         self.embedding.weight.data.uniform_(-val, val)
         if num_speakers > 1:
             self.speaker_embedding = nn.Embedding(num_speakers,
-                                                  self.embedding_size)
+                                                  self.speaker_dim)
             self.speaker_embedding.weight.data.normal_(0, 0.3)
         self.encoder = Encoder(self.embedding_size, dropout=encoder_dropout)
         if self.use_gst:
@@ -49,8 +50,10 @@ class SlimTaco(nn.Module):
             #                              prosody_encoding_dim=128,
             #                              scoring_function_name="tanh",
             #                              use_separate_keys=True)
-        self.decoder = Decoder(self.embedding_size, self.n_mel_channels, r, self.style_dim,
-                               prenet_type, prenet_dropout, query_dim, transition_style)
+        self.decoder = Decoder(self.embedding_size, self.n_mel_channels, r,
+                               self.style_dim, self.speaker_dim,
+                               prenet_type, prenet_dropout, query_dim,
+                               transition_style)
         self.postnet = Postnet(self.n_mel_channels, dropout=postnet_dropout)
 
     @staticmethod
@@ -60,28 +63,28 @@ class SlimTaco(nn.Module):
         return mel_outputs, mel_outputs_postnet, alignments
 
     def forward(self, text, text_lengths, mel_specs=None, speaker_ids=None,
-                print_norms=False):
+                teacher_keep_rate=1.0):
         # compute mask for padding
         mask = sequence_mask(text_lengths).to(text.device)
         embedded_inputs = self.embedding(text).transpose(1, 2)
         encoder_outputs = self.encoder(embedded_inputs, text_lengths)
-        encoder_outputs = self._add_speaker_embedding(encoder_outputs,
-                                                      speaker_ids)
+        # encoder_outputs = self._add_speaker_embedding(encoder_outputs,
+        #                                               speaker_ids)
+        if hasattr(self, "speaker_embedding") and speaker_ids is not None:
+            speaker_embedding = self.speaker_embedding(speaker_ids)
+        else:
+            speaker_embedding = None
+
         if self.use_gst and mel_specs is not None:
             gst_outputs = self.gst(mel_specs).squeeze(1)
-            if print_norms:
-                print(f"gst norm: {torch.norm(gst_outputs[0])}")
-                print(f"encoder norm: {torch.norm(encoder_outputs[0, 1])}")
-                print(f"dist first, last: {torch.cosine_similarity(encoder_outputs[0,0], encoder_outputs[0,text_lengths[0]-1], dim=0)}")
             # gst_outputs = gst_outputs.expand(-1, encoder_outputs.size(1), -1)
             # encoder_outputs = encoder_outputs + gst_outputs
-            # if print_norms:
-                # print(f"dist first, last, after adding gst: {torch.cosine_similarity(encoder_outputs[0, 0], encoder_outputs[0, text_lengths[0]-1], dim=0)}")
         else:
             gst_outputs = None
 
         mel_outputs, alignments = self.decoder(
-            encoder_outputs, mel_specs, gst_outputs, mask)
+            encoder_outputs, mel_specs, gst_outputs,
+            speaker_embedding, mask, teacher_keep_rate)
         mel_outputs_postnet = self.postnet(mel_outputs)
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
         mel_outputs, mel_outputs_postnet, alignments = self.shape_outputs(
@@ -91,8 +94,13 @@ class SlimTaco(nn.Module):
     def inference(self, text, mel_specs=None, speaker_ids=None):
         embedded_inputs = self.embedding(text).transpose(1, 2)
         encoder_outputs = self.encoder.inference(embedded_inputs)
-        encoder_outputs = self._add_speaker_embedding(encoder_outputs,
-                                                      speaker_ids)
+        # encoder_outputs = self._add_speaker_embedding(encoder_outputs,
+        #                                               speaker_ids)
+        if hasattr(self, "speaker_embedding") and speaker_ids is not None:
+            speaker_embedding = self.speaker_embedding(speaker_ids)
+        else:
+            speaker_embedding = None
+
         if self.use_gst and mel_specs is not None:
             gst_outputs = self.gst(mel_specs).squeeze(1)
             # gst_outputs = gst_outputs.expand(-1, encoder_outputs.size(1), -1)
@@ -100,7 +108,9 @@ class SlimTaco(nn.Module):
         else:
             gst_outputs = None
 
-        mel_outputs, alignments = self.decoder.inference(encoder_outputs, gst_outputs)
+        mel_outputs, alignments = self.decoder.inference(encoder_outputs,
+                                                         gst_outputs,
+                                                         speaker_embedding)
         mel_outputs_postnet = self.postnet(mel_outputs)
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
         mel_outputs, mel_outputs_postnet, alignments = self.shape_outputs(

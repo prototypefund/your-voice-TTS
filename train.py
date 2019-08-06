@@ -37,6 +37,9 @@ num_gpus = torch.cuda.device_count()
 print(" > Using CUDA: ", use_cuda)
 print(" > Number of GPUs: ", num_gpus)
 
+# keeprates=[1.0, 0.8, 0.65, 0.50, 0.40, 0.35, 0.30, 0.25, 0.20, 0.17, 0.14, 0.11, 0.08, 0.05]
+keeprates = [1.0]
+
 
 def setup_loader(ap, is_val=False, verbose=False):
     global meta_data_train
@@ -94,6 +97,8 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
     # stop_losses = []
     step_times = []
     print("\n > Epoch {}/{}".format(epoch, c.epochs), flush=True)
+    teacher_keep_rate = keeprates[min(epoch // 8, len(keeprates) - 1)]
+    print(f"\n > keep rate in teacher forcing: ${teacher_keep_rate}")
     batch_n_iter = int(len(data_loader.dataset) / (c.batch_size * num_gpus))
     for num_iter, data in enumerate(data_loader):
         start_time = time.time()
@@ -146,10 +151,11 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
             if speaker_ids is not None:
                 speaker_ids = speaker_ids.cuda(non_blocking=True)
 
+
         # forward pass model
         decoder_output, postnet_output, alignments = model(
             text_input, text_lengths, mel_input, speaker_ids=speaker_ids,
-            print_norms=current_step % c.print_step == 0)
+            teacher_keep_rate=teacher_keep_rate)
 
         alignments_masked = alignments * alignment_mask.float()
         alignments_sum_pred = torch.clamp(torch.sum(alignments_masked, dim=1), 0.0, 1.0)
@@ -159,6 +165,7 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
         # stop_loss = criterion_st(stop_tokens, stop_targets) if c.stopnet else torch.zeros(1)
         alignment_loss = criterion_alignment(alignments_sum_pred,
                                              alignment_targets)
+
         if c.loss_masking:
             decoder_loss = criterion(decoder_output, mel_input, mel_lengths)
             if c.model == "Tacotron":
@@ -307,6 +314,7 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
     avg_postnet_loss = 0
     avg_decoder_loss = 0
     avg_alignment_loss = 0
+    teacher_keep_rate = keeprates[min(epoch // 8, len(keeprates) - 1)]
     print("\n > Validation")
     if c.test_sentences_file is None:
         test_sentences = [
@@ -364,7 +372,8 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
                 # forward pass
                 decoder_output, postnet_output, alignments =\
                     model.forward(text_input, text_lengths, mel_input,
-                                  speaker_ids=speaker_ids)
+                                  speaker_ids=speaker_ids,
+                                  teacher_keep_rate=teacher_keep_rate)
 
                 alignments_sum_pred = torch.clamp(torch.sum(alignments, dim=1),
                                                   0.0, 1.0)
@@ -550,6 +559,10 @@ def main(args): #pylint: disable=redefined-outer-name
         criterion = L1LossMasked() if c.model == "Tacotron" else MSELossMasked()
     else:
         criterion = nn.L1Loss() if c.model == "Tacotron" else nn.MSELoss()
+
+    # l1 = nn.L1Loss()
+    # l2 = nn.MSELoss()
+    # criterion = lambda pred, target: l1(pred, target) + l2(pred, target)
     criterion_alignment = nn.MSELoss()
 
     if args.restore_path:
@@ -578,6 +591,8 @@ def main(args): #pylint: disable=redefined-outer-name
     if use_cuda:
         model = model.cuda()
         criterion.cuda()
+        # l1.cuda()
+        # l2.cuda()
         # if criterion_st:
         #     criterion_st.cuda()
 

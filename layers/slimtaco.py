@@ -3,6 +3,7 @@ from torch.autograd import Variable
 from torch import nn
 from torch.nn import functional as F
 from .common_layers import Prenet, Linear, SimpleAttention
+import numpy as np
 
 
 class ConvBNBlock(nn.Module):
@@ -49,6 +50,7 @@ class Postnet(nn.Module):
 
 
 class Encoder(nn.Module):
+
     def __init__(self, in_features=512, num_convs=3, dropout=0.5):
         super(Encoder, self).__init__()
         convolutions = []
@@ -101,7 +103,7 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
-    def __init__(self, in_features, memory_dim, r, style_dim,
+    def __init__(self, in_features, memory_dim, r, style_dim, speaker_dim,
                  prenet_type, prenet_dropout, query_dim, transition_style):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
@@ -109,6 +111,7 @@ class Decoder(nn.Module):
         self.encoder_embedding_dim = in_features
         self.query_dim = query_dim
         self.style_dim = style_dim
+        self.speaker_dim = speaker_dim
         self.decoder_rnn_dim = 512
         self.prenet_dim = 256
         self.max_decoder_steps = 1000
@@ -120,18 +123,19 @@ class Decoder(nn.Module):
                              prenet_dropout,
                              [self.prenet_dim, self.prenet_dim], bias=False)
 
-        self.attention_rnn = nn.LSTMCell(self.prenet_dim + in_features + self.style_dim,
+        self.attention_rnn = nn.LSTMCell(self.prenet_dim + in_features + self.style_dim + self.speaker_dim,
                                          self.query_dim)
 
         self.attention = SimpleAttention(query_dim=self.query_dim,
                                          embedding_dim=in_features,
                                          style_dim=self.style_dim,
+                                         speaker_dim=self.speaker_dim,
                                          transition_style=transition_style)
 
-        self.decoder_rnn = nn.LSTMCell(self.query_dim + in_features + self.style_dim,
+        self.decoder_rnn = nn.LSTMCell(self.query_dim + in_features + self.style_dim + self.speaker_dim,
                                        self.decoder_rnn_dim, 1)
 
-        self.linear_projection = Linear(self.decoder_rnn_dim + in_features + self.style_dim,
+        self.linear_projection = Linear(self.decoder_rnn_dim + in_features + self.style_dim + self.speaker_dim,
                                         self.memory_dim * r)
 
         self.attention_rnn_init = nn.Embedding(1, self.query_dim)
@@ -144,7 +148,7 @@ class Decoder(nn.Module):
         memory = self.memory_init(inputs.data.new_zeros(B).long())
         return memory
 
-    def _init_states(self, inputs, style, mask, keep_states=False):
+    def _init_states(self, inputs, style, speaker, mask, keep_states=False):
         B = inputs.size(0)
         # T = inputs.size(1)
 
@@ -166,6 +170,12 @@ class Decoder(nn.Module):
             self.style = inputs.data.new(B, self.style_dim).zero_()
         else:
             self.style = style
+
+        if speaker is None:
+            self.speaker = inputs.data.new(B, self.speaker_dim).zero_()
+        else:
+            self.speaker = speaker
+
         self.inputs = inputs
         self.mask = mask
 
@@ -183,7 +193,7 @@ class Decoder(nn.Module):
         return outputs, alignments
 
     def decode(self, memory):
-        query_input = torch.cat((memory, self.context, self.style), -1)
+        query_input = torch.cat((memory, self.context, self.style, self.speaker), -1)
         self.query, self.attention_rnn_cell_state = self.attention_rnn(
             query_input, (self.query, self.attention_rnn_cell_state))
         self.query = F.dropout(
@@ -191,9 +201,9 @@ class Decoder(nn.Module):
         self.attention_rnn_cell_state = F.dropout(
             self.attention_rnn_cell_state, self.p_attention_dropout, self.training)
 
-        self.context = self.attention(self.query, self.inputs, self.style)
+        self.context = self.attention(self.query, self.inputs, self.style, self.speaker)
 
-        memory = torch.cat((self.query, self.context, self.style), -1)
+        memory = torch.cat((self.query, self.context, self.style, self.speaker), -1)
         self.decoder_hidden, self.decoder_cell = self.decoder_rnn(
             memory, (self.decoder_hidden, self.decoder_cell))
         self.decoder_hidden = F.dropout(self.decoder_hidden,
@@ -201,25 +211,28 @@ class Decoder(nn.Module):
         self.decoder_cell = F.dropout(self.decoder_cell,
                                       self.p_decoder_dropout, self.training)
 
-        decoder_hidden_context = torch.cat((self.decoder_hidden, self.context, self.style),
+        decoder_hidden_context = torch.cat((self.decoder_hidden, self.context, self.style, self.speaker),
                                            dim=1)
 
         decoder_output = self.linear_projection(decoder_hidden_context)
 
         return decoder_output, self.attention.alpha
 
-    def forward(self, inputs, memory, style, mask):
+    def forward(self, inputs, memory, style, speaker, mask, teacher_keep_rate=1.0):
         memory_start = self.get_memory_start_frame(inputs).unsqueeze(0)
         memory_steps = self._reshape_memory(memory)
         memory_steps = torch.cat((memory_start, memory_steps), dim=0)
         memory_steps = self.prenet(memory_steps)
 
-        self._init_states(inputs, style, mask=mask)
+        self._init_states(inputs, style, speaker, mask=mask)
         self.attention.init_states(inputs)
 
         outputs, alignments = [], []
         while len(outputs) < memory_steps.size(0) - 1:
-            memory = memory_steps[len(outputs)]
+            if len(outputs) == 0 or teacher_keep_rate < np.random.random():
+                memory = memory_steps[len(outputs)]
+            else:
+                memory = self.prenet(outputs[-1])
             mel_output, attention_weights = self.decode(memory)
             outputs += [mel_output]
             alignments += [attention_weights]
@@ -228,10 +241,10 @@ class Decoder(nn.Module):
 
         return outputs, alignments
 
-    def inference(self, inputs, style):
+    def inference(self, inputs, style, speaker):
         memory = self.get_memory_start_frame(inputs)
 
-        self._init_states(inputs, style, mask=None)
+        self._init_states(inputs, style, speaker, mask=None)
         self.attention.init_states(inputs)
 
         outputs, alignments = [], []
@@ -253,15 +266,15 @@ class Decoder(nn.Module):
 
         return outputs, alignments
 
-    def inference_truncated(self, inputs, style):
+    def inference_truncated(self, inputs, style, speaker):
         """
         Preserve decoder states for continuous inference
         """
         if self.memory_truncated is None:
             self.memory_truncated = self.get_memory_start_frame(inputs)
-            self._init_states(inputs, style, mask=None, keep_states=False)
+            self._init_states(inputs, style, speaker, mask=None, keep_states=False)
         else:
-            self._init_states(inputs, style, mask=None, keep_states=True)
+            self._init_states(inputs, style, speaker, mask=None, keep_states=True)
 
         self.attention.init_states(inputs)
         outputs, alignments = [], []
