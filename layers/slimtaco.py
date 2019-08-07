@@ -229,7 +229,7 @@ class Decoder(nn.Module):
 
         outputs, alignments = [], []
         while len(outputs) < memory_steps.size(0) - 1:
-            if len(outputs) == 0 or teacher_keep_rate < np.random.random():
+            if len(outputs) == 0 or teacher_keep_rate > np.random.random():
                 memory = memory_steps[len(outputs)]
             else:
                 memory = self.prenet(outputs[-1])
