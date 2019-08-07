@@ -2,8 +2,8 @@ import torch
 from torch.autograd import Variable
 from torch import nn
 from torch.nn import functional as F
-from .common_layers import Prenet, Linear, SimpleAttention
 import numpy as np
+from .common_layers import Prenet, Linear
 
 
 class ConvBNBlock(nn.Module):
@@ -26,6 +26,27 @@ class ConvBNBlock(nn.Module):
     def forward(self, x):
         output = self.net(x)
         return output
+
+
+class OrderNet(nn.Module):
+    def __init__(self, in_dim, num_convs, kernel_size, out_dim,
+                 dropout=0.0):
+        super(OrderNet, self).__init__()
+        self.convolutions = nn.ModuleList()
+        self.convolutions.append(
+            ConvBNBlock(in_dim, out_dim, kernel_size=kernel_size,
+                        nonlinear='relu',
+                        dropout=dropout))
+        for _ in range(1, num_convs):
+            self.convolutions.append(
+                ConvBNBlock(out_dim, out_dim, kernel_size=kernel_size,
+                            nonlinear='relu',
+                            dropout=dropout))
+
+    def forward(self, x):
+        for layer in self.convolutions:
+            x = layer(x)
+        return x
 
 
 class Postnet(nn.Module):
@@ -104,7 +125,8 @@ class Decoder(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
     def __init__(self, in_features, memory_dim, r, style_dim, speaker_dim,
-                 prenet_type, prenet_dropout, query_dim, transition_style):
+                 prenet_type, prenet_dropout, query_dim, transition_style,
+                 ordered_attn):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
         self.r = r
@@ -130,7 +152,8 @@ class Decoder(nn.Module):
                                          embedding_dim=in_features,
                                          style_dim=self.style_dim,
                                          speaker_dim=self.speaker_dim,
-                                         transition_style=transition_style)
+                                         transition_style=transition_style,
+                                         ordered_attn=ordered_attn)
 
         self.decoder_rnn = nn.LSTMCell(self.query_dim + in_features + self.style_dim + self.speaker_dim,
                                        self.decoder_rnn_dim, 1)
@@ -307,3 +330,62 @@ class Decoder(nn.Module):
         memory = self.prenet(memory)
         mel_output, alignment = self.decode(memory)
         return mel_output, alignment
+
+
+class SimpleAttention(nn.Module):
+    # Pylint gets confused by PyTorch conventions here
+    #pylint: disable=attribute-defined-outside-init
+    def __init__(self, query_dim, embedding_dim, style_dim, speaker_dim, transition_style, ordered_attn):
+        super(SimpleAttention, self).__init__()
+        self.transition_style = transition_style
+        self.ta_u = nn.Linear(query_dim + embedding_dim + style_dim + speaker_dim, 1, bias=True)
+        self.ordered_attn = ordered_attn
+        if transition_style == "dynamicsq":
+            self.ta_sq = nn.Linear(query_dim + embedding_dim + style_dim + speaker_dim, 1, bias=True)
+        if self.ordered_attn:
+            self.order_net = OrderNet(embedding_dim, 2, 3, embedding_dim)
+        self.alpha = None
+        self.u = None
+        self.sq = None
+
+    def init_states(self, inputs):
+        B = inputs.size(0)
+        T = inputs.size(1)
+        self.alpha = torch.cat(
+            (torch.ones((B, 1)),
+             torch.zeros((B, T))[:, :-1] + 1e-7), dim=1).to(inputs.device)
+        self.u = (0.5 * torch.ones((B, 1))).to(inputs.device)
+        self.sq = (1.4 * torch.ones((B, 1))).to(inputs.device)
+
+    def forward(self, query, inputs, style, speaker):
+        fwd_shifted_alpha = F.pad(
+            self.alpha[:, :-1].clone().to(inputs.device),
+            [1, 0, 0, 0])
+        # compute transition potentials
+        alpha = ((1 - self.u) * self.alpha
+                 + self.u * fwd_shifted_alpha
+                 + 1e-6) ** self.sq  # (self.sq + 1 - abs(0.5-self.u))
+        # renormalize attention weights
+        self.alpha = alpha / alpha.sum(dim=1, keepdim=True)
+
+        if self.ordered_attn:
+            attended_inputs = self.alpha.unsqueeze(2) * inputs
+            order_information = self.order_net(attended_inputs.transpose(1, 2)).transpose(1, 2)
+            context = torch.sum(order_information + attended_inputs, dim=1,
+                                keepdim=False)
+            context = np.sqrt(0.5) * context
+        else:
+            context = torch.bmm(self.alpha.unsqueeze(1), inputs)
+            context = context.squeeze(1)
+
+        # compute transition
+        ta_input = torch.cat((context, query.squeeze(1), style, speaker), dim=-1)
+        if self.transition_style == "staticsq":
+            self. u = torch.sigmoid(self.ta_u(ta_input))
+        elif self.transition_style == "dynamicsq":
+            self.u = torch.sigmoid(self.ta_u(ta_input))
+            self.sq = 1.0 + torch.sigmoid(self.ta_sq(ta_input))
+        else:
+            raise ValueError(f"Transition style ${self.transition_style} unknown")
+
+        return context

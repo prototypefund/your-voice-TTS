@@ -296,6 +296,7 @@ def setup_model(num_chars, num_speakers, c):
             postnet_dropout=c.postnet_dropout,
             query_dim=c.query_dim,
             transition_style=c.transition_style,
+            ordered_attn=c.get("ordered_attn", False),
             use_gst=c.use_gst)
     else:
         raise ValueError(f"unknown model type: {c.model.lower()}")
