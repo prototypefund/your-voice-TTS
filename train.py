@@ -423,12 +423,12 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
 
             if args.rank == 0:
                 # Diagnostic visualizations
-                #idx = np.random.randint(mel_input.shape[0])
-                const_spec = postnet_output[-1].data.cpu().numpy()
-                gt_spec = linear_input[-1].data.cpu().numpy() if c.model == "Tacotron" else mel_input[-1].data.cpu().numpy()
-                align_img = alignments[-1].data.cpu().numpy()
-                text_len = text_lengths[-1].data.cpu().numpy()
-                spec_len = mel_lengths[-1].data.cpu().numpy()
+                idx = np.random.randint(mel_input.shape[0])
+                const_spec = postnet_output[idx].data.cpu().numpy()
+                gt_spec = linear_input[idx].data.cpu().numpy() if c.model == "Tacotron" else mel_input[idx].data.cpu().numpy()
+                align_img = alignments[idx].data.cpu().numpy()
+                text_len = text_lengths[idx].data.cpu().numpy()
+                spec_len = mel_lengths[idx].data.cpu().numpy()
 
                 eval_figures = {
                     "prediction": plot_spectrogram(const_spec, ap),
