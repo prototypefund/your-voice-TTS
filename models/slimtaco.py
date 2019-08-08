@@ -87,7 +87,7 @@ class SlimTaco(nn.Module):
             encoder_outputs, mel_specs, gst_outputs,
             speaker_embedding, mask, teacher_keep_rate)
         mel_outputs_postnet = self.postnet(mel_outputs)
-        mel_outputs_postnet = mel_outputs + mel_outputs_postnet
+        mel_outputs_postnet = 0.5 * (mel_outputs + mel_outputs_postnet)
         mel_outputs, mel_outputs_postnet, alignments = self.shape_outputs(
             mel_outputs, mel_outputs_postnet, alignments)
         return mel_outputs, mel_outputs_postnet, alignments
