@@ -10,7 +10,8 @@ def plot_alignment(alignment, info=None,
                    text_padding_start=None, spec_padding_start=None):
     fig, ax = plt.subplots(figsize=(16, 10))
     im = ax.imshow(
-        alignment.T, aspect='auto', origin='lower', interpolation='none')
+        alignment.T, aspect='auto', origin='lower', interpolation='none',
+        vmin=0, vmax=1.0)
     fig.colorbar(im, ax=ax)
     xlabel = 'Decoder timestep'
     if info is not None:
@@ -46,7 +47,7 @@ def plot_alignment(alignment, info=None,
 def plot_spectrogram(linear_output, audio):
     spectrogram = audio._denormalize(linear_output)
     fig = plt.figure(figsize=(16, 10))
-    plt.imshow(spectrogram.T, aspect="auto", origin="lower")
+    plt.imshow(spectrogram.T, aspect="auto", origin="lower", vmin=-100, vmax=0)
     plt.colorbar()
     plt.tight_layout()
     return fig

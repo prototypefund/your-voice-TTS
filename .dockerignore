@@ -3,5 +3,7 @@
 dataset_analysis/WadaSNR
 .ipynb_checkpoints
 dataset_analysis/.ipynb_checkpoints
+notebooks/.ipynb_checkpoints
 tests/data/
+tests/inputs/
 tests/outputs/

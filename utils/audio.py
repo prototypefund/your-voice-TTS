@@ -77,9 +77,7 @@ class AudioProcessor(object):
         """Put values in [0, self.max_norm] or [-self.max_norm, self.max_norm]"""
         #pylint: disable=no-else-return
         if self.signal_norm:
-            min_val = self.min_level_db - self.ref_level_db
-            val_range = self.min_level_db
-            S_norm = ((S - min_val) / -val_range)
+            S_norm = ((S - self.min_level_db) / - self.min_level_db)
             if self.symmetric_norm:
                 S_norm = ((2 * self.max_norm) * S_norm) - self.max_norm
                 if self.clip_norm:

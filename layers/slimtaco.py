@@ -61,7 +61,7 @@ class Postnet(nn.Module):
                 ConvBNBlock(conv_dim, conv_dim, kernel_size=5, nonlinear='tanh',
                             dropout=dropout))
         self.convolutions.append(
-            ConvBNBlock(conv_dim, mel_dim, kernel_size=5, nonlinear='tanh',
+            ConvBNBlock(conv_dim, mel_dim, kernel_size=5, nonlinear=None,
                         dropout=dropout))
 
     def forward(self, x):
@@ -159,8 +159,7 @@ class Decoder(nn.Module):
                                        self.decoder_rnn_dim, 1)
 
         self.linear_projection = Linear(self.decoder_rnn_dim + in_features + self.style_dim + self.speaker_dim,
-                                        self.memory_dim * r,
-                                        init_gain='tanh')
+                                        self.memory_dim * r)
 
         self.attention_rnn_init = nn.Embedding(1, self.query_dim)
         self.memory_init = nn.Embedding(1, self.memory_dim * self.r)
@@ -238,7 +237,7 @@ class Decoder(nn.Module):
         decoder_hidden_context = torch.cat((self.decoder_hidden, self.context, self.style, self.speaker),
                                            dim=1)
 
-        decoder_output = F.tanh(self.linear_projection(decoder_hidden_context))
+        decoder_output = self.linear_projection(decoder_hidden_context)
 
         return decoder_output, self.attention.alpha
 
