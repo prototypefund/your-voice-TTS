@@ -126,11 +126,11 @@ class Decoder(nn.Module):
     #pylint: disable=attribute-defined-outside-init
     def __init__(self, in_features, memory_dim, r, style_dim, speaker_dim,
                  prenet_type, prenet_dropout, query_dim, transition_style,
-                 ordered_attn):
+                 ordered_attn, diff_attn):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
         self.r = r
-        self.encoder_embedding_dim = in_features
+        self.context_dim = in_features if not diff_attn else in_features * 2
         self.query_dim = query_dim
         self.style_dim = style_dim
         self.speaker_dim = speaker_dim
@@ -145,20 +145,21 @@ class Decoder(nn.Module):
                              prenet_dropout,
                              [self.prenet_dim, self.prenet_dim], bias=False)
 
-        self.attention_rnn = nn.LSTMCell(self.prenet_dim + in_features + self.style_dim + self.speaker_dim,
+        self.attention_rnn = nn.LSTMCell(self.prenet_dim + self.context_dim + self.style_dim + self.speaker_dim,
                                          self.query_dim)
 
         self.attention = SimpleAttention(query_dim=self.query_dim,
-                                         embedding_dim=in_features,
+                                         embedding_dim=self.context_dim,
                                          style_dim=self.style_dim,
                                          speaker_dim=self.speaker_dim,
                                          transition_style=transition_style,
-                                         ordered_attn=ordered_attn)
+                                         ordered_attn=ordered_attn,
+                                         diff_attn=diff_attn)
 
-        self.decoder_rnn = nn.LSTMCell(self.query_dim + in_features + self.style_dim + self.speaker_dim,
+        self.decoder_rnn = nn.LSTMCell(self.query_dim + self.context_dim + self.style_dim + self.speaker_dim,
                                        self.decoder_rnn_dim, 1)
 
-        self.linear_projection = Linear(self.decoder_rnn_dim + in_features + self.style_dim + self.speaker_dim,
+        self.linear_projection = Linear(self.decoder_rnn_dim + self.context_dim + self.style_dim + self.speaker_dim,
                                         self.memory_dim * r)
 
         self.attention_rnn_init = nn.Embedding(1, self.query_dim)
@@ -187,7 +188,7 @@ class Decoder(nn.Module):
                 inputs.data.new(B, self.decoder_rnn_dim).zero_())
 
             self.context = Variable(
-                inputs.data.new(B, self.encoder_embedding_dim).zero_())
+                inputs.data.new(B, self.context_dim).zero_())
 
         if style is None:
             self.style = inputs.data.new(B, self.style_dim).zero_()
@@ -335,11 +336,13 @@ class Decoder(nn.Module):
 class SimpleAttention(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
-    def __init__(self, query_dim, embedding_dim, style_dim, speaker_dim, transition_style, ordered_attn):
+    def __init__(self, query_dim, embedding_dim, style_dim, speaker_dim,
+                 transition_style, ordered_attn, diff_attn):
         super(SimpleAttention, self).__init__()
         self.transition_style = transition_style
         self.ta_u = nn.Linear(query_dim + embedding_dim + style_dim + speaker_dim, 1, bias=True)
         self.ordered_attn = ordered_attn
+        self.diff_attn = diff_attn
         if transition_style == "dynamicsq":
             self.ta_sq = nn.Linear(query_dim + embedding_dim + style_dim + speaker_dim, 1, bias=True)
         if self.ordered_attn:
@@ -347,15 +350,20 @@ class SimpleAttention(nn.Module):
         self.alpha = None
         self.u = None
         self.sq = None
+        if self.diff_attn:
+            self.prev_context = None
 
     def init_states(self, inputs):
         B = inputs.size(0)
         T = inputs.size(1)
+        S = inputs.size(2)
         self.alpha = torch.cat(
             (torch.ones((B, 1)),
              torch.zeros((B, T))[:, :-1] + 1e-7), dim=1).to(inputs.device)
         self.u = (0.5 * torch.ones((B, 1))).to(inputs.device)
         self.sq = (1.4 * torch.ones((B, 1))).to(inputs.device)
+        if self.diff_attn:
+            self.prev_context=torch.zeros((B, S)).to(inputs.device)
 
     def forward(self, query, inputs, style, speaker):
         fwd_shifted_alpha = F.pad(
@@ -377,6 +385,11 @@ class SimpleAttention(nn.Module):
         else:
             context = torch.bmm(self.alpha.unsqueeze(1), inputs)
             context = context.squeeze(1)
+
+        if self.diff_attn:
+            context_diff = context - self.prev_context
+            self.prev_context = context
+            context = torch.cat((context, context_diff), dim=-1)
 
         # compute transition
         ta_input = torch.cat((context, query.squeeze(1), style, speaker), dim=-1)

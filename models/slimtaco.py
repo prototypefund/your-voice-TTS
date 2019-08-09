@@ -22,7 +22,8 @@ class SlimTaco(nn.Module):
                  query_dim=512,
                 transition_style="staticsq",
                  use_gst=False,
-                 ordered_attn=False):
+                 ordered_attn=False,
+                 diff_attn=False):
         super(SlimTaco, self).__init__()
         self.n_mel_channels = 80
         self.n_frames_per_step = r
@@ -54,7 +55,7 @@ class SlimTaco(nn.Module):
         self.decoder = Decoder(self.embedding_size, self.n_mel_channels, r,
                                self.style_dim, self.speaker_dim,
                                prenet_type, prenet_dropout, query_dim,
-                               transition_style, ordered_attn)
+                               transition_style, ordered_attn, diff_attn)
         self.postnet = Postnet(self.n_mel_channels, dropout=postnet_dropout)
 
     @staticmethod
