@@ -16,7 +16,7 @@ class SlimTaco(nn.Module):
                  num_speakers,
                  r,
                  prenet_type="original",
-                 prenet_dropout=True,
+                 prenet_dropout=0.5,
                  encoder_dropout=0.25,
                  postnet_dropout=0.25,
                  query_dim=512,

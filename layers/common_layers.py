@@ -55,7 +55,7 @@ class Prenet(nn.Module):
     def __init__(self,
                  in_features,
                  prenet_type="original",
-                 prenet_dropout=True,
+                 prenet_dropout=0.5,
                  out_features=[256, 256],
                  bias=True):
         super(Prenet, self).__init__()
@@ -75,10 +75,8 @@ class Prenet(nn.Module):
 
     def forward(self, x):
         for linear in self.layers:
-            if self.prenet_dropout:
-                x = F.dropout(F.relu(linear(x)), p=0.5, training=self.training)
-            else:
-                x = F.relu(linear(x))
+            x = F.dropout(F.relu(linear(x)), p=self.prenet_dropout,
+                          training=self.training)
         return x
 
 
