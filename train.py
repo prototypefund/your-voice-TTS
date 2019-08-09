@@ -559,11 +559,12 @@ def main(args): #pylint: disable=redefined-outer-name
         criterion = L1LossMasked() if c.model == "Tacotron" else MSELossMasked()
     else:
         criterion = nn.L1Loss() if c.model == "Tacotron" else nn.MSELoss()
-
-    # l1 = nn.L1Loss()
-    # l2 = nn.MSELoss()
-    # criterion = lambda pred, target: l1(pred, target) + l2(pred, target)
     criterion_alignment = nn.MSELoss()
+
+    if c.get("combine_loss", False):
+        l1 = nn.L1Loss()
+        l2 = nn.MSELoss()
+        criterion = lambda pred, target: l1(pred, target) + l2(pred, target)
 
     if args.restore_path:
         checkpoint = torch.load(args.restore_path)
@@ -591,8 +592,10 @@ def main(args): #pylint: disable=redefined-outer-name
     if use_cuda:
         model = model.cuda()
         criterion.cuda()
-        # l1.cuda()
-        # l2.cuda()
+        criterion_alignment.cuda()
+        if c.get("combine_loss", False):
+            l1.cuda()
+            l2.cuda()
         # if criterion_st:
         #     criterion_st.cuda()
 
