@@ -130,7 +130,11 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
         self.r = r
-        self.context_dim = in_features if not diff_attn else in_features * 2
+        self.context_dim = in_features
+        if ordered_attn:
+            self.context_dim += 32
+        if diff_attn:
+            self.context_dim *= 2
         self.query_dim = query_dim
         self.style_dim = style_dim
         self.speaker_dim = speaker_dim
@@ -346,7 +350,7 @@ class SimpleAttention(nn.Module):
         if transition_style == "dynamicsq":
             self.ta_sq = nn.Linear(query_dim + embedding_dim + style_dim + speaker_dim, 1, bias=True)
         if self.ordered_attn:
-            self.order_net = OrderNet(embedding_dim, 2, 3, embedding_dim)
+            self.order_net = OrderNet(embedding_dim, 1, 3, 32)
         self.alpha = None
         self.u = None
         self.sq = None
@@ -378,10 +382,10 @@ class SimpleAttention(nn.Module):
 
         if self.ordered_attn:
             attended_inputs = self.alpha.unsqueeze(2) * inputs
-            order_information = self.order_net(attended_inputs.transpose(1, 2)).transpose(1, 2)
-            context = torch.sum(order_information + attended_inputs, dim=1,
-                                keepdim=False)
-            context = np.sqrt(0.5) * context
+            order_information = self.order_net(attended_inputs.transpose(1, 2))
+            order_information = torch.sum(order_information, dim=2, keepdim=False)
+            context = torch.sum(order_information, dim=1, keepdim=False)
+            context = torch.cat((context, order_information), dim=-1)
         else:
             context = torch.bmm(self.alpha.unsqueeze(1), inputs)
             context = context.squeeze(1)
