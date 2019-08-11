@@ -305,7 +305,8 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
     return np.mean(postnet_losses), current_step
 
 
-def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
+def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
+             mode="easy"):
     data_loader = setup_loader(ap, is_val=True)
     if c.use_speaker_embedding:
         speaker_mapping = load_speaker_mapping(OUT_PATH)
@@ -314,22 +315,8 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
     avg_postnet_loss = 0
     avg_decoder_loss = 0
     avg_alignment_loss = 0
-    teacher_keep_rate = keeprates[min(epoch // 8, len(keeprates) - 1)]
-    print("\n > Validation")
-    if c.test_sentences_file is None:
-        test_sentences = [
-            # "Am Ende gibt es nur einen Verlierer: die SPD. Die Sozialdemokraten haben mit ihrem 'Nein' zu Ursula von der Leyen weder sich noch dem Spitzenkandidatenprinzip geholfen.",
-            "In Kitas, Schulen und Asylunterkünften soll künftig ein Impfschutz verpflichtend sein, auch für Angestellte.",
-            "Es tut mir leid Thomas, aber ich kann das leider nicht tun.",
-            "Auf den sieben Robbenklippen sitzen sieben Robbensippen, die sich in die Rippen stippen, bis sie von den Klippen kippen.",
-            # "Ich esse meine Suppe nicht! Nein, meine Suppe ess' ich nicht!",
-            # "Hallo Frau Peters, ich bin Herr Müller.",
-            "Da zogen sie sich ihre besten Kleider an und gingen in die große weiße Kirche.",
-            "Soll mich doch wundern, wo der Bengel wieder steckt! Tom!"
-        ]
-    else:
-        with open(c.test_sentences_file, "r") as f:
-            test_sentences = [s.strip() for s in f.readlines()]
+    teacher_keep_rate = 1.0 if mode == "easy" else 0.5
+    print(f"\n > Validation: {mode}")
     with torch.no_grad():
         if data_loader is not None:
             for num_iter, data in enumerate(data_loader):
@@ -431,9 +418,9 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
                 spec_len = mel_lengths[idx].data.cpu().numpy()
 
                 eval_figures = {
-                    "prediction": plot_spectrogram(const_spec, ap),
-                    "ground_truth": plot_spectrogram(gt_spec, ap),
-                    "alignment": plot_alignment(align_img,
+                    f"prediction ({mode})": plot_spectrogram(const_spec, ap),
+                    f"ground_truth ({mode})": plot_spectrogram(gt_spec, ap),
+                    f"alignment ({mode})": plot_alignment(align_img,
                                                 text_padding_start=text_len,
                                                 spec_padding_start=spec_len // c.r)
                 }
@@ -452,11 +439,29 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
                 avg_alignment_loss /= (num_iter + 1)
 
                 # Plot Validation Stats
-                epoch_stats = {"loss_postnet": avg_postnet_loss,
-                               "loss_decoder": avg_decoder_loss,
-                               "alignment_loss": avg_alignment_loss}
+                epoch_stats = {f"loss_postnet ({mode})": avg_postnet_loss,
+                               f"loss_decoder ({mode})": avg_decoder_loss,
+                               f"alignment_loss ({mode})": avg_alignment_loss}
                 tb_logger.tb_eval_stats(current_step, epoch_stats)
 
+    return avg_postnet_loss
+
+
+def test(model, criterion, criterion_alignment, ap, current_step, epoch):
+    if c.test_sentences_file is None:
+        test_sentences = [
+            # "Am Ende gibt es nur einen Verlierer: die SPD. Die Sozialdemokraten haben mit ihrem 'Nein' zu Ursula von der Leyen weder sich noch dem Spitzenkandidatenprinzip geholfen.",
+            "In Kitas, Schulen und Asylunterkünften soll künftig ein Impfschutz verpflichtend sein, auch für Angestellte.",
+            "Es tut mir leid Thomas, aber ich kann das leider nicht tun.",
+            "Auf den sieben Robbenklippen sitzen sieben Robbensippen, die sich in die Rippen stippen, bis sie von den Klippen kippen.",
+            # "Ich esse meine Suppe nicht! Nein, meine Suppe ess' ich nicht!",
+            # "Hallo Frau Peters, ich bin Herr Müller.",
+            "Da zogen sie sich ihre besten Kleider an und gingen in die große weiße Kirche.",
+            "Soll mich doch wundern, wo der Bengel wieder steckt! Tom!"
+        ]
+    else:
+        with open(c.test_sentences_file, "r") as f:
+            test_sentences = [s.strip() for s in f.readlines()]
     if args.rank == 0 and epoch > c.test_delay_epochs:
         # test sentences
         test_audios = {}
@@ -511,7 +516,6 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch):
                     traceback.print_exc()
         tb_logger.tb_test_audios(current_step, test_audios, c.audio['sample_rate'])
         tb_logger.tb_test_figures(current_step, test_figures)
-    return avg_postnet_loss
 
 
 #FIXME: move args definition/parsing inside of main?
@@ -591,11 +595,13 @@ def main(args): #pylint: disable=redefined-outer-name
 
     if use_cuda:
         model = model.cuda()
-        criterion.cuda()
         criterion_alignment.cuda()
         if c.get("combine_loss", False):
             l1.cuda()
             l2.cuda()
+        else:
+            criterion.cuda()
+
         # if criterion_st:
         #     criterion_st.cuda()
 
@@ -622,10 +628,13 @@ def main(args): #pylint: disable=redefined-outer-name
                                          optimizer, None, scheduler,
                                          ap, epoch)
         val_loss = evaluate(model, criterion, criterion_alignment, ap, current_step, epoch)
+        val_loss_hard = evaluate(model, criterion, criterion_alignment, ap, current_step, epoch, "hard")
         print(
-            " | > Training Loss: {:.5f}   Validation Loss: {:.5f}".format(
-                train_loss, val_loss),
+            " | > Training Loss: {:.5f}   Validation Loss: (easy) {:.5f}   "
+            "Validation Loss: (hard) {:.5f}".format(
+                train_loss, val_loss, val_loss_hard),
             flush=True)
+        test(model, criterion, criterion_alignment, ap, current_step, epoch)
         target_loss = train_loss
         if c.run_eval:
             target_loss = val_loss
