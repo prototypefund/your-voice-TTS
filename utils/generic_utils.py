@@ -298,6 +298,7 @@ def setup_model(num_chars, num_speakers, c):
             transition_style=c.transition_style,
             ordered_attn=c.get("ordered_attn", False),
             diff_attn=c.get("diff_attn", False),
+            transition_activation=c.get("transition_activation", "sigmoid"),
             use_gst=c.use_gst)
     else:
         raise ValueError(f"unknown model type: {c.model.lower()}")

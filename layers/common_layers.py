@@ -24,6 +24,7 @@ class Linear(nn.Module):
     def forward(self, x):
         return self.linear_layer(x)
 
+
 class LinearBN(nn.Module):
     def __init__(self,
                  in_features,

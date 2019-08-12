@@ -126,7 +126,7 @@ class Decoder(nn.Module):
     #pylint: disable=attribute-defined-outside-init
     def __init__(self, in_features, memory_dim, r, style_dim, speaker_dim,
                  prenet_type, prenet_dropout, query_dim, transition_style,
-                 ordered_attn, diff_attn):
+                 ordered_attn, diff_attn, transition_activation):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
         self.r = r
@@ -153,12 +153,14 @@ class Decoder(nn.Module):
                                          self.query_dim)
 
         self.attention = SimpleAttention(query_dim=self.query_dim,
-                                         embedding_dim=self.context_dim,
+                                         embedding_dim=in_features,
+                                         context_dim=self.context_dim,
                                          style_dim=self.style_dim,
                                          speaker_dim=self.speaker_dim,
                                          transition_style=transition_style,
                                          ordered_attn=ordered_attn,
-                                         diff_attn=diff_attn)
+                                         diff_attn=diff_attn,
+                                         transition_activation=transition_activation)
 
         self.decoder_rnn = nn.LSTMCell(self.query_dim + self.context_dim + self.style_dim + self.speaker_dim,
                                        self.decoder_rnn_dim, 1)
@@ -340,15 +342,21 @@ class Decoder(nn.Module):
 class SimpleAttention(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
-    def __init__(self, query_dim, embedding_dim, style_dim, speaker_dim,
-                 transition_style, ordered_attn, diff_attn):
+    def __init__(self, query_dim, embedding_dim, context_dim, style_dim, speaker_dim,
+                 transition_style, ordered_attn, diff_attn, transition_activation="sigmoid"):
         super(SimpleAttention, self).__init__()
         self.transition_style = transition_style
-        self.ta_u = nn.Linear(query_dim + embedding_dim + style_dim + speaker_dim, 1, bias=True)
+        self.transition_activation = transition_activation
+        init_gain = transition_activation if transition_activation != "softsign" else "tanh"
         self.ordered_attn = ordered_attn
         self.diff_attn = diff_attn
+
+        self.ta_u = Linear(query_dim + context_dim + style_dim + speaker_dim, 1,
+                           bias=True, init_gain=init_gain)
         if transition_style == "dynamicsq":
-            self.ta_sq = nn.Linear(query_dim + embedding_dim + style_dim + speaker_dim, 1, bias=True)
+            self.ta_sq = Linear(
+                query_dim + context_dim + style_dim + speaker_dim, 1,
+                bias=True, init_gain=init_gain)
         if self.ordered_attn:
             self.order_net = OrderNet(embedding_dim, 1, 3, 32)
         self.alpha = None
@@ -384,7 +392,7 @@ class SimpleAttention(nn.Module):
             attended_inputs = self.alpha.unsqueeze(2) * inputs
             order_information = self.order_net(attended_inputs.transpose(1, 2))
             order_information = torch.sum(order_information, dim=2, keepdim=False)
-            context = torch.sum(order_information, dim=1, keepdim=False)
+            context = torch.sum(attended_inputs, dim=1, keepdim=False)
             context = torch.cat((context, order_information), dim=-1)
         else:
             context = torch.bmm(self.alpha.unsqueeze(1), inputs)
@@ -397,11 +405,18 @@ class SimpleAttention(nn.Module):
 
         # compute transition
         ta_input = torch.cat((context, query.squeeze(1), style, speaker), dim=-1)
-        if self.transition_style == "staticsq":
-            self. u = torch.sigmoid(self.ta_u(ta_input))
-        elif self.transition_style == "dynamicsq":
-            self.u = torch.sigmoid(self.ta_u(ta_input))
-            self.sq = 1.0 + torch.sigmoid(self.ta_sq(ta_input))
+        if self.transition_activation == "sigmoid":
+            activation_func = lambda x: torch.sigmoid(x)
+        elif self.transition_activation == "tanh":
+            activation_func = lambda x: 0.5 + torch.tanh(x) * 0.5
+        elif self.transition_activation == "softsign":
+            activation_func = lambda x: 0.5 + F.softsign(x) * 0.5
+        else:
+            raise ValueError(f"Transition activation ${self.transition_activation} unknown.")
+
+        self. u = activation_func(self.ta_u(ta_input))
+        if self.transition_style == "dynamicsq":
+            self.sq = activation_func(self.ta_sq(ta_input)) + 1.0
         else:
             raise ValueError(f"Transition style ${self.transition_style} unknown")
 
