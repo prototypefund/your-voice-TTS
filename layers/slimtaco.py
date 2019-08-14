@@ -351,12 +351,12 @@ class SimpleAttention(nn.Module):
         self.ordered_attn = ordered_attn
         self.diff_attn = diff_attn
 
-        self.ta_u = Linear(query_dim + context_dim + style_dim + speaker_dim, 1,
-                           bias=True, init_gain=init_gain)
+        self.ta_u = nn.Linear(query_dim + context_dim + style_dim + speaker_dim, 1,
+                           bias=True)
         if transition_style == "dynamicsq":
-            self.ta_sq = Linear(
+            self.ta_sq = nn.Linear(
                 query_dim + context_dim + style_dim + speaker_dim, 1,
-                bias=True, init_gain=init_gain)
+                bias=True)
         if self.ordered_attn:
             self.order_net = OrderNet(embedding_dim, 1, 3, 32)
         self.alpha = None
