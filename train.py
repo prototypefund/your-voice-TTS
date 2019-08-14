@@ -243,13 +243,13 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
                             "ma_step_time": np.mean(step_times[-c.print_step:])}
                 tb_logger.tb_train_iter_stats(current_step, iter_stats)
 
-            if current_step % c.save_step == 0:
-                if c.checkpoint:
-                    # save model
-                    save_checkpoint(model, optimizer, optimizer_st,
-                                    postnet_loss.item(), OUT_PATH, current_step,
-                                    epoch)
+            if current_step % c.save_step == 0 and c.checkpoint:
+                # save model
+                save_checkpoint(model, optimizer, optimizer_st,
+                                postnet_loss.item(), OUT_PATH, current_step,
+                                epoch)
 
+            if current_step % c.train_diag_step == 0:
                 # Diagnostic visualizations
                 const_spec = postnet_output[-1].data.cpu().numpy()
                 gt_spec = linear_input[-1].data.cpu().numpy() if c.model == "Tacotron" else mel_input[-1].data.cpu().numpy()
@@ -456,8 +456,8 @@ def test(model, criterion, criterion_alignment, ap, current_step, epoch):
             "Auf den sieben Robbenklippen sitzen sieben Robbensippen, die sich in die Rippen stippen, bis sie von den Klippen kippen.",
             # "Ich esse meine Suppe nicht! Nein, meine Suppe ess' ich nicht!",
             # "Hallo Frau Peters, ich bin Herr Müller.",
-            "Da zogen sie sich ihre besten Kleider an und gingen in die große weiße Kirche.",
-            "Soll mich doch wundern, wo der Bengel wieder steckt! Tom!"
+            # "Da zogen sie sich ihre besten Kleider an und gingen in die große weiße Kirche.",
+            # "Soll mich doch wundern, wo der Bengel wieder steckt! Tom!"
         ]
     else:
         with open(c.test_sentences_file, "r") as f:
