@@ -7,3 +7,4 @@ notebooks/.ipynb_checkpoints
 tests/data/
 tests/inputs/
 tests/outputs/
+WaveRNN/.git/

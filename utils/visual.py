@@ -53,11 +53,11 @@ def plot_spectrogram(linear_output, audio):
     return fig
 
 
-def visualize(alignment, spectrogram_postnet, stop_tokens, text, hop_length, CONFIG, spectrogram=None, output_path=None):
+def visualize(alignment, spectrogram_postnet, text, hop_length, CONFIG, spectrogram=None, output_path=None):
     if spectrogram is not None:
-        num_plot = 4
-    else:
         num_plot = 3
+    else:
+        num_plot = 2
 
     label_fontsize = 16
     fig = plt.figure(figsize=(8, 24))
@@ -73,11 +73,11 @@ def visualize(alignment, spectrogram_postnet, stop_tokens, text, hop_length, CON
     plt.yticks(range(len(text)), list(text))
     plt.colorbar()
 
-    stop_tokens = stop_tokens.squeeze().detach().to('cpu').numpy()
-    plt.subplot(num_plot, 1, 2)
-    plt.plot(range(len(stop_tokens)), list(stop_tokens))
+    # stop_tokens = stop_tokens.squeeze().detach().to('cpu').numpy()
+    # plt.subplot(num_plot, 1, 2)
+    # plt.plot(range(len(stop_tokens)), list(stop_tokens))
 
-    plt.subplot(num_plot, 1, 3)
+    plt.subplot(num_plot, 1, 2)
     librosa.display.specshow(spectrogram_postnet.T, sr=CONFIG.audio['sample_rate'],
                              hop_length=hop_length, x_axis="time", y_axis="linear")
     plt.xlabel("Time", fontsize=label_fontsize)
@@ -86,7 +86,7 @@ def visualize(alignment, spectrogram_postnet, stop_tokens, text, hop_length, CON
     plt.colorbar()
 
     if spectrogram is not None:
-        plt.subplot(num_plot, 1, 4)
+        plt.subplot(num_plot, 1, 3)
         librosa.display.specshow(spectrogram.T, sr=CONFIG.audio['sample_rate'],
                                  hop_length=hop_length, x_axis="time", y_axis="linear")
         plt.xlabel("Time", fontsize=label_fontsize)
