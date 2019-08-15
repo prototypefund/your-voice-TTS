@@ -7,6 +7,11 @@ class Logger(object):
         self.writer = SummaryWriter(log_dir)
         self.train_stats = {}
         self.eval_stats = {}
+        self.parameter_reference = None
+
+    def save_parameters_for_reference(self, model):
+        self.parameter_reference = {name: param.clone()
+                                    for name, param in model.named_parameters()}
 
     def tb_model_weights(self, model, step):
         layer_num = 1
@@ -27,6 +32,10 @@ class Logger(object):
                 "layer{}-{}/param".format(layer_num, name), param, step)
             self.writer.add_histogram(
                 "layer{}-{}/grad".format(layer_num, name), param.grad, step)
+            self.writer.add_histogram(
+                "layer{}-{}/movement".format(layer_num, name),
+                param - self.parameter_reference[name],
+                step)
             layer_num += 1
 
     def dict_to_tb_scalar(self, scope_name, stats, step):

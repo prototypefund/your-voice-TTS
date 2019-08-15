@@ -100,6 +100,8 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
     teacher_keep_rate = keeprates[min(epoch // 8, len(keeprates) - 1)]
     print(f"\n > keep rate in teacher forcing: ${teacher_keep_rate}")
     batch_n_iter = int(len(data_loader.dataset) / (c.batch_size * num_gpus))
+    if c.tb_model_param_stats and args.rank == 0:
+        tb_logger.save_parameters_for_reference(model)
     for num_iter, data in enumerate(data_loader):
         start_time = time.time()
 
