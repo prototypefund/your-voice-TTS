@@ -300,6 +300,14 @@ def setup_model(num_chars, num_speakers, c):
             diff_attn=c.get("diff_attn", False),
             transition_activation=c.get("transition_activation", "sigmoid"),
             use_gst=c.use_gst)
+    elif c.model.lower() == "parataco":
+        model = MyModel(
+            num_chars=num_chars,
+            r=c.r,
+            prenet_type=c.prenet_type,
+            prenet_dropout=c.prenet_dropout,
+            encoder_dropout=c.encoder_dropout,
+            postnet_dropout=c.postnet_dropout)
     else:
         raise ValueError(f"unknown model type: {c.model.lower()}")
     return model
