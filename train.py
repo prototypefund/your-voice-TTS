@@ -634,11 +634,15 @@ def main(args): #pylint: disable=redefined-outer-name
                                          optimizer, None, scheduler,
                                          ap, epoch)
         val_loss = evaluate(model, criterion, criterion_alignment, ap, current_step, epoch)
-        val_loss_hard = evaluate(model, criterion, criterion_alignment, ap, current_step, epoch, "hard")
+        # val_loss_hard = evaluate(model, criterion, criterion_alignment, ap, current_step, epoch, "hard")
+        # print(
+        #     " | > Training Loss: {:.5f}   Validation Loss: (easy) {:.5f}   "
+        #     "Validation Loss: (hard) {:.5f}".format(
+        #         train_loss, val_loss, val_loss_hard),
+        #     flush=True)
         print(
-            " | > Training Loss: {:.5f}   Validation Loss: (easy) {:.5f}   "
-            "Validation Loss: (hard) {:.5f}".format(
-                train_loss, val_loss, val_loss_hard),
+            " | > Training Loss: {:.5f}   "
+            "Validation Loss: (easy) {:.5f}".format(train_loss, val_loss),
             flush=True)
         test(model, criterion, criterion_alignment, ap, current_step, epoch)
         target_loss = train_loss
