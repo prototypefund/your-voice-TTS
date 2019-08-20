@@ -258,6 +258,8 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
                 align_img = alignments[-1].data.cpu().numpy()
                 text_len = text_lengths[-1].data.cpu().numpy()
                 spec_len = mel_lengths[-1].data.cpu().numpy()
+                gt_spec = gt_spec[:spec_len]
+                const_spec = const_spec[:spec_len]
 
                 figures = {
                     "prediction": plot_spectrogram(const_spec, ap),
@@ -418,6 +420,8 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
                 align_img = alignments[idx].data.cpu().numpy()
                 text_len = text_lengths[idx].data.cpu().numpy()
                 spec_len = mel_lengths[idx].data.cpu().numpy()
+                gt_spec = gt_spec[:spec_len]
+                const_spec = const_spec[:spec_len]
 
                 eval_figures = {
                     f"prediction ({mode})": plot_spectrogram(const_spec, ap),
