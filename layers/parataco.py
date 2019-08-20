@@ -3,7 +3,30 @@ from torch.autograd import Variable
 from torch import nn
 from torch.nn import functional as F
 import numpy as np
-from .common_layers import Prenet, Linear
+from .common_layers import Linear
+
+
+class Prenet(nn.Module):
+    def __init__(self,
+                 in_features,
+                 prenet_type="original",
+                 prenet_dropout=0.5,
+                 out_features=[256, 256],
+                 bias=True):
+        super(Prenet, self).__init__()
+        self.prenet_type = prenet_type
+        self.prenet_dropout = prenet_dropout
+        in_features = [in_features] + out_features[:-1]
+        self.layers = nn.ModuleList([
+            Linear(in_size, out_size, bias=bias, init_gain="relu")
+            for (in_size, out_size) in zip(in_features, out_features)
+        ])
+
+    def forward(self, x):
+        for linear in self.layers:
+            x = F.dropout(F.relu(linear(x)), p=self.prenet_dropout,
+                          training=self.training)
+        return x
 
 
 class ConvBNBlock(nn.Module):
@@ -74,7 +97,8 @@ class Speedometer(nn.Module):
              torch.zeros((B, T))[:, :-1] + 1e-7), dim=1).to(x.device)
         for _ in range(num_steps):
             u = torch.bmm(alpha.unsqueeze(1), speeds).squeeze(2)
-            alpha = self.step(alpha, u, 1.4)
+            sq = (torch.ones_like(u) + 0.7) - torch.abs(u - 0.5)
+            alpha = self.step(alpha, u, sq)
             alphas.append(alpha)
 
         alphas = torch.stack(alphas, dim=1)
@@ -85,16 +109,14 @@ class Speedometer(nn.Module):
     def inference(self, x, r):
         B = x.size(0)
         T = x.size(1)
-        speeds = torch.clamp(F.relu(self.speedometer(x)), 1.01)
-        speeds = speeds / r
-        speeds_recip = 1.0 / speeds
+        speeds = torch.sigmoid(self.speedometer(x))
         alphas = []
         alpha = torch.cat(
             (torch.ones((B, 1)),
              torch.zeros((B, T))[:, :-1] + 1e-7), dim=1).to(x.device)
         alignment_mass_on_last_char = 0.0
         while alignment_mass_on_last_char < 1.0:
-            u = torch.bmm(alpha.unsqueeze(1), speeds_recip)
+            u = torch.bmm(alpha.unsqueeze(1), speeds).squeeze(2)
             alpha = self.step(alpha, u, 1.4)
             alphas.append(alpha)
             alignment_mass_on_last_char += alpha[0, -1]
