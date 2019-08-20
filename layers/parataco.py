@@ -34,21 +34,37 @@ class ConvBNBlock(nn.Module):
                  dropout=0.5):
         super(ConvBNBlock, self).__init__()
         assert (kernel_size - 1) % 2 == 0
+        self.nonlinear = nonlinear
         padding = (kernel_size - 1) // 2
-        conv1d = nn.Conv1d(
+        self.conv1d = nn.Conv1d(
             in_channels, out_channels, kernel_size, padding=padding)
         norm = nn.BatchNorm1d(out_channels)
         dropout = nn.Dropout(p=dropout)
         if nonlinear == 'relu':
-            self.net = nn.Sequential(conv1d, norm, nn.ReLU(), dropout)
+            self.net = nn.Sequential(self.conv1d, norm, nn.ReLU(), dropout)
         elif nonlinear == 'tanh':
-            self.net = nn.Sequential(conv1d, norm, nn.Tanh(), dropout)
+            self.net = nn.Sequential(self.conv1d, norm, nn.Tanh(), dropout)
         else:
-            self.net = nn.Sequential(conv1d, norm, dropout)
+            self.net = nn.Sequential(self.conv1d, norm, dropout)
+        self._init_w()
 
     def forward(self, x):
         output = self.net(x)
         return output
+
+    def _init_w(self):
+        if self.nonlinear == "relu":
+            torch.nn.init.kaiming_normal_(self.conv1d.weight.data, a=0, nonlinearity=self.nonlinear)
+        elif self.nonlinear == "tanh":
+            torch.nn.init.xavier_uniform_(
+                self.conv1d.weight.data,
+                gain=torch.nn.init.calculate_gain(self.nonlinear))
+        elif self.nonlinear is None:
+            torch.nn.init.xavier_uniform_(
+                self.conv1d.weight.data,
+                gain=torch.nn.init.calculate_gain("linear"))
+
+        torch.nn.init.constant_(self.conv1d.bias.data, 0)
 
 
 class Postnet(nn.Module):
@@ -56,11 +72,11 @@ class Postnet(nn.Module):
         super(Postnet, self).__init__()
         self.convolutions = nn.ModuleList()
         self.convolutions.append(
-            ConvBNBlock(mel_dim, conv_dim, kernel_size=5, nonlinear='tanh',
+            ConvBNBlock(mel_dim, conv_dim, kernel_size=5, nonlinear='relu',
                         dropout=dropout))
         for _ in range(1, num_convs - 1):
             self.convolutions.append(
-                ConvBNBlock(conv_dim, conv_dim, kernel_size=5, nonlinear='tanh',
+                ConvBNBlock(conv_dim, conv_dim, kernel_size=5, nonlinear='relu',
                             dropout=dropout))
         self.convolutions.append(
             ConvBNBlock(conv_dim, mel_dim, kernel_size=5, nonlinear=None,
@@ -117,7 +133,8 @@ class Speedometer(nn.Module):
         alignment_mass_on_last_char = 0.0
         while alignment_mass_on_last_char < 1.0:
             u = torch.bmm(alpha.unsqueeze(1), speeds).squeeze(2)
-            alpha = self.step(alpha, u, 1.4)
+            sq = (torch.ones_like(u) + 0.7) - torch.abs(u - 0.5)
+            alpha = self.step(alpha, u, sq)
             alphas.append(alpha)
             alignment_mass_on_last_char += alpha[0, -1]
 
@@ -160,7 +177,7 @@ class Encoder(nn.Module):
         x_in_t = x_in.transpose(1, 2)
         x_out = self.convolutions(x_in_t)
         x_out = x_out.transpose(1, 2)
-        return x_in + x_out
+        return (x_in + x_out) * torch.sqrt(0.5)
 
 
 # adapted from https://github.com/NVIDIA/tacotron2/
@@ -183,6 +200,7 @@ class Decoder(nn.Module):
                                            [self.memory_dim * r, self.memory_dim * r])
 
         self.memory_init = nn.Embedding(1, self.memory_dim * self.r)
+        self.memory_init.weight.data.normal_(0, np.sqrt(0.5))
 
     def get_memory_start_frame(self, inputs):
         B = inputs.size(0)

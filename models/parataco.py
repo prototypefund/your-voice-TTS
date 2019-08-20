@@ -26,10 +26,10 @@ class ParaTaco(nn.Module):
 
         self.embedding = nn.Embedding(num_chars, self.embedding_size)
 
-        std = sqrt(2.0 / (num_chars + self.embedding_size))
-        val = sqrt(3.0) * std  # uniform bounds for std
-        self.embedding.weight.data.uniform_(-val, val)
-        self.encoder = Encoder(self.embedding_size, num_convs=5, kernel_size=3,
+        # std = sqrt(2.0 / (num_chars + self.embedding_size))
+        # val = sqrt(3.0) * std  # uniform bounds for std
+        # self.embedding.weight.data.uniform_(-val, val)
+        self.encoder = Encoder(self.embedding_size, num_convs=3, kernel_size=5,
                                dropout=encoder_dropout)
         self.speedometer = Speedometer(self.embedding_size)
 
