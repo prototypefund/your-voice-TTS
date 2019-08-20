@@ -160,8 +160,8 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
             teacher_keep_rate=teacher_keep_rate)
 
         alignments_masked = alignments * alignment_mask.float()
-        alignments_sum_pred = torch.clamp(torch.sum(alignments_masked, dim=1), 0.0, 1.0)
-
+        alignments_sum_pred = torch.clamp(torch.sum(alignments_masked, dim=1), 0.15, 0.5)
+        alignment_targets = torch.clamp(alignment_targets, 0.15, 0.5)
 
         # loss computation
         # stop_loss = criterion_st(stop_tokens, stop_targets) if c.stopnet else torch.zeros(1)
@@ -335,6 +335,7 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
                 mel_lengths = data[5]
                 # stop_targets = data[6]
                 alignment_targets = data[7]
+                alignment_mask = data[8]
 
                 if c.use_speaker_embedding:
                     speaker_ids = [speaker_mapping[speaker_name]
@@ -357,6 +358,7 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
                     linear_input = linear_input.cuda() if c.model == "Tacotron" else None
                     # stop_targets = stop_targets.cuda()
                     alignment_targets = alignment_targets.cuda()
+                    alignment_mask = alignment_mask.cuda(non_blocking=True)
                     if speaker_ids is not None:
                         speaker_ids = speaker_ids.cuda()
 
@@ -366,8 +368,10 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
                                   speaker_ids=speaker_ids,
                                   teacher_keep_rate=teacher_keep_rate)
 
-                alignments_sum_pred = torch.clamp(torch.sum(alignments, dim=1),
-                                                  0.0, 1.0)
+                alignments_masked = alignments * alignment_mask.float()
+                alignments_sum_pred = torch.clamp(
+                    torch.sum(alignments_masked, dim=1), 0.15, 0.5)
+                alignment_targets = torch.clamp(alignment_targets, 0.15, 0.5)
 
                 # loss computation
                 # stop_loss = criterion_st(stop_tokens, stop_targets) if
@@ -569,7 +573,7 @@ def main(args): #pylint: disable=redefined-outer-name
         criterion = L1LossMasked() if c.model == "Tacotron" else MSELossMasked()
     else:
         criterion = nn.L1Loss() if c.model == "Tacotron" else nn.MSELoss()
-    criterion_alignment = nn.MSELoss()
+    criterion_alignment = nn.L1Loss()
 
     if c.get("combine_loss", False):
         l1 = nn.L1Loss()

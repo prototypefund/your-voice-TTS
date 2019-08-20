@@ -177,7 +177,7 @@ class Encoder(nn.Module):
         x_in_t = x_in.transpose(1, 2)
         x_out = self.convolutions(x_in_t)
         x_out = x_out.transpose(1, 2)
-        return (x_in + x_out) * torch.sqrt(0.5)
+        return (x_in + x_out) * np.sqrt(0.5)
 
 
 # adapted from https://github.com/NVIDIA/tacotron2/
