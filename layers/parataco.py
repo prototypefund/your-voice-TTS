@@ -214,7 +214,12 @@ class Decoder(nn.Module):
         return memory_steps
 
     def _parse_outputs(self, outputs):
-        # outputs = torch.stack(outputs).transpose(0, 1)
+        outputs = outputs.contiguous().view(outputs.size(0), -1, self.memory_dim)
+        outputs = outputs.transpose(1, 2)
+        return outputs
+
+    def _parse_outputs_inference(self, outputs):
+        outputs = torch.stack(outputs, dim=0).transpose(0, 1)
         outputs = outputs.contiguous().view(outputs.size(0), -1, self.memory_dim)
         outputs = outputs.transpose(1, 2)
         return outputs
@@ -234,16 +239,17 @@ class Decoder(nn.Module):
         memory = self.get_memory_start_frame(contexts)
 
         outputs = []
+        contexts.squeeze_(0)
         for context in contexts:
             processed_memory = self.prenet(memory)
-            output = self.projector(torch.cat((context, processed_memory), dim=-1))
+            output = self.projector(torch.cat((context.unsqueeze(0), processed_memory), dim=-1))
             outputs += [output]
             memory = output
 
-            if len(outputs) == self.max_decoder_steps:
-                print("   | > Decoder stopped with 'max_decoder_steps")
-                break
+            # if len(outputs) == self.max_decoder_steps:
+            #     print("   | > Decoder stopped with 'max_decoder_steps")
+            #     break
 
-        outputs = self._parse_outputs(outputs)
+        outputs = self._parse_outputs_inference(outputs)
 
         return outputs

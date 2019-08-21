@@ -62,7 +62,7 @@ class ParaTaco(nn.Module):
         encoder_outputs = self.encoder(embedded_inputs)
         contexts, alignments = self.speedometer.inference(encoder_outputs,
                                                       self.n_frames_per_step)
-        mel_outputs = self.decoder(contexts, mel_specs)
+        mel_outputs = self.decoder.inference(contexts)
         mel_outputs_postnet = self.postnet(mel_outputs)
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
         mel_outputs, mel_outputs_postnet = self.shape_outputs(
