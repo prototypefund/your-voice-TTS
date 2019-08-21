@@ -80,13 +80,12 @@ def setup_loader(ap, is_val=False, verbose=False):
             sampler=sampler,
             num_workers=c.num_val_loader_workers
             if is_val else c.num_loader_workers,
-            pin_memory=False)
-    return loader
+            pin_memory=True)
+    return loader, dataset
 
 
 def train(model, criterion, criterion_alignment, optimizer, optimizer_st, scheduler,
-          ap, epoch):
-    data_loader = setup_loader(ap, is_val=False, verbose=(epoch == 0))
+          ap, epoch, data_loader):
     if c.use_speaker_embedding:
         speaker_mapping = load_speaker_mapping(OUT_PATH)
     model.train()
@@ -310,8 +309,7 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
 
 
 def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
-             mode="easy"):
-    data_loader = setup_loader(ap, is_val=True)
+             data_loader, mode="easy"):
     if c.use_speaker_embedding:
         speaker_mapping = load_speaker_mapping(OUT_PATH)
     model.eval()
@@ -358,7 +356,7 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
                     linear_input = linear_input.cuda() if c.model == "Tacotron" else None
                     # stop_targets = stop_targets.cuda()
                     alignment_targets = alignment_targets.cuda()
-                    alignment_mask = alignment_mask.cuda(non_blocking=True)
+                    alignment_mask = alignment_mask.cuda()
                     if speaker_ids is not None:
                         speaker_ids = speaker_ids.cuda()
 
@@ -633,11 +631,14 @@ def main(args): #pylint: disable=redefined-outer-name
     if 'best_loss' not in locals():
         best_loss = float('inf')
 
+    train_loader, train_dataset = setup_loader(ap, is_val=False, verbose=True)
+    eval_loader, eval_dataset = setup_loader(ap, is_val=True)
+
     for epoch in range(0, c.epochs):
         train_loss, current_step = train(model, criterion, criterion_alignment,
                                          optimizer, None, scheduler,
-                                         ap, epoch)
-        val_loss = evaluate(model, criterion, criterion_alignment, ap, current_step, epoch)
+                                         ap, epoch, train_loader)
+        val_loss = evaluate(model, criterion, criterion_alignment, ap, current_step, epoch, eval_loader)
         # val_loss_hard = evaluate(model, criterion, criterion_alignment, ap, current_step, epoch, "hard")
         # print(
         #     " | > Training Loss: {:.5f}   Validation Loss: (easy) {:.5f}   "
@@ -654,6 +655,8 @@ def main(args): #pylint: disable=redefined-outer-name
             target_loss = val_loss
         best_loss = save_best_model(model, optimizer, target_loss, best_loss,
                                     OUT_PATH, current_step, epoch)
+        train_dataset.verbose = False
+        train_dataset.make_index()
 
 
 if __name__ == '__main__':

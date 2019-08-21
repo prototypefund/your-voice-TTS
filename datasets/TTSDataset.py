@@ -1,3 +1,4 @@
+import functools
 import os
 import numpy as np
 import collections
@@ -64,7 +65,8 @@ class MyDataset(Dataset):
             if use_phonemes:
                 print("   | > phoneme language: {}".format(phoneme_language))
             print(" | > Number of instances : {}".format(len(self.items)))
-        self.sort_items()
+        self.index = []
+        self.make_index()
 
     def load_wav(self, filename):
         audio = self.ap.load_wav(filename)
@@ -108,6 +110,7 @@ class MyDataset(Dataset):
 
         return phonemes
 
+    @functools.lru_cache(50000)
     def load_data(self, idx):
         text, wav_file, speaker_name = self.items[idx]
         wav = np.asarray(self.load_wav(wav_file), dtype=np.float32)
@@ -121,36 +124,40 @@ class MyDataset(Dataset):
         assert text.size > 0, self.items[idx][1]
         assert wav.size > 0, self.items[idx][1]
 
+        mel = self.ap.melspectrogram(wav).astype('float32')
+        # linear = self.ap.spectrogram(w).astype('float32')
+
         sample = {
             'text': text,
-            'wav': wav,
+            'mel': mel,
             'item_idx': self.items[idx][1],
             'speaker_name': speaker_name
         }
         return sample
 
-    def sort_items(self):
+    def make_index(self):
         r"""Sort instances based on text length in ascending order"""
         lengths = np.array([len(ins[0]) for ins in self.items])
 
         idxs = np.argsort(lengths)
-        new_items = []
+        new_index = []
         ignored = []
         for i, idx in enumerate(idxs):
             length = lengths[idx]
             if length < self.min_seq_len or length > self.max_seq_len:
                 ignored.append(idx)
             else:
-                new_items.append(self.items[idx])
+                new_index.append(idx)
+
         # shuffle batch groups
         if self.batch_group_size > 0:
-            for i in range(len(new_items) // self.batch_group_size):
+            for i in range(len(new_index) // self.batch_group_size):
                 offset = i * self.batch_group_size
                 end_offset = offset + self.batch_group_size
-                temp_items = new_items[offset:end_offset]
-                random.shuffle(temp_items)
-                new_items[offset:end_offset] = temp_items
-        self.items = new_items
+                temp_index = new_index[offset:end_offset]
+                random.shuffle(temp_index)
+                new_index[offset:end_offset] = temp_index
+        self.index = new_index
 
         if self.verbose:
             print(" | > Max length sequence: {}".format(np.max(lengths)))
@@ -161,10 +168,10 @@ class MyDataset(Dataset):
             print(" | > Batch group size: {}.".format(self.batch_group_size))
 
     def __len__(self):
-        return len(self.items)
+        return len(self.index)
 
     def __getitem__(self, idx):
-        return self.load_data(idx)
+        return self.load_data(self.index[idx])
 
     def collate_fn(self, batch):
         r"""
@@ -182,16 +189,13 @@ class MyDataset(Dataset):
             text_lenghts, ids_sorted_decreasing = torch.sort(
                 torch.LongTensor(text_lenghts), dim=0, descending=True)
 
-            wav = [batch[idx]['wav'] for idx in ids_sorted_decreasing]
+            mel = [batch[idx]['mel'] for idx in ids_sorted_decreasing]
             item_idxs = [
                 batch[idx]['item_idx'] for idx in ids_sorted_decreasing
             ]
             text = [batch[idx]['text'] for idx in ids_sorted_decreasing]
             speaker_name = [batch[idx]['speaker_name']
                             for idx in ids_sorted_decreasing]
-
-            mel = [self.ap.melspectrogram(w).astype('float32') for w in wav]
-            linear = [self.ap.spectrogram(w).astype('float32') for w in wav]
 
             mel_lengths = [m.shape[1] + 1 for m in mel]  # +1 for zero-frame
 
@@ -212,16 +216,16 @@ class MyDataset(Dataset):
 
             # PAD sequences with largest length of the batch
             text = prepare_data(text).astype(np.int32)
-            wav = prepare_data(wav)
+            # wav = prepare_data(wav)
 
             # PAD features with largest length + a zero frame
-            linear = prepare_tensor(linear, self.outputs_per_step)
+            # linear = prepare_tensor(linear, self.outputs_per_step)
             mel = prepare_tensor(mel, self.outputs_per_step)
-            assert mel.shape[2] == linear.shape[2]
+            # assert mel.shape[2] == linear.shape[2]
             timesteps = mel.shape[2]
 
             # B x T x D
-            linear = linear.transpose(0, 2, 1)
+            # linear = linear.transpose(0, 2, 1)
             mel = mel.transpose(0, 2, 1)
 
             # mask that zeros out alignment in the spec padding zone, and for
@@ -243,11 +247,12 @@ class MyDataset(Dataset):
             # convert things to pytorch
             text_lenghts = torch.LongTensor(text_lenghts)
             text = torch.LongTensor(text)
-            linear = torch.FloatTensor(linear).contiguous()
+            # linear = torch.FloatTensor(linear).contiguous()
             mel = torch.FloatTensor(mel).contiguous()
             mel_lengths = torch.LongTensor(mel_lengths)
             stop_targets = torch.FloatTensor(stop_targets)
             align_targets = torch.FloatTensor(align_targets)
+            linear = None
 
             return text, text_lenghts, speaker_name, linear, mel, mel_lengths, \
                    stop_targets, align_targets, align_mask, item_idxs
