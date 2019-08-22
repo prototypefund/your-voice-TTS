@@ -20,11 +20,12 @@ class SlimTaco(nn.Module):
                  encoder_dropout=0.25,
                  postnet_dropout=0.25,
                  query_dim=512,
-                transition_style="staticsq",
+                 transition_style="staticsq",
                  use_gst=False,
                  ordered_attn=False,
                  diff_attn=False,
-                 transition_activation="sigmoid"):
+                 transition_activation="sigmoid",
+                 init_embedding=True):
         super(SlimTaco, self).__init__()
         self.n_mel_channels = 80
         self.n_frames_per_step = r
@@ -34,10 +35,10 @@ class SlimTaco(nn.Module):
         self.speaker_dim = 64
 
         self.embedding = nn.Embedding(num_chars, self.embedding_size)
-
-        std = sqrt(2.0 / (num_chars + self.embedding_size))
-        val = sqrt(3.0) * std  # uniform bounds for std
-        self.embedding.weight.data.uniform_(-val, val)
+        if init_embedding:
+            std = sqrt(2.0 / (num_chars + self.embedding_size))
+            val = sqrt(3.0) * std  # uniform bounds for std
+            self.embedding.weight.data.uniform_(-val, val)
         if num_speakers > 1:
             self.speaker_embedding = nn.Embedding(num_speakers,
                                                   self.speaker_dim)
