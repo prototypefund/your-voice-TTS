@@ -37,9 +37,6 @@ num_gpus = torch.cuda.device_count()
 print(" > Using CUDA: ", use_cuda)
 print(" > Number of GPUs: ", num_gpus)
 
-# keeprates=[1.0, 0.8, 0.65, 0.50, 0.40, 0.35, 0.30, 0.25, 0.20, 0.17, 0.14, 0.11, 0.08, 0.05]
-keeprates = [1.0]
-
 
 def setup_loader(ap, is_val=False, verbose=False):
     global meta_data_train
@@ -96,7 +93,7 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
     # stop_losses = []
     step_times = []
     print("\n > Epoch {}/{}".format(epoch, c.epochs), flush=True)
-    teacher_keep_rate = keeprates[min(epoch // 8, len(keeprates) - 1)]
+    teacher_keep_rate = c.get("teacher_keep_rate", 1.0)
     print(f"\n > keep rate in teacher forcing: ${teacher_keep_rate}")
     batch_n_iter = int(len(data_loader.dataset) / (c.batch_size * num_gpus))
     if c.tb_model_param_stats and args.rank == 0:
@@ -317,7 +314,7 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
     avg_postnet_loss = 0
     avg_decoder_loss = 0
     avg_alignment_loss = 0
-    teacher_keep_rate = 1.0 if mode == "easy" else 0.5
+    teacher_keep_rate = c.get("teacher_keep_rate", 1.0)
     print(f"\n > Validation: {mode}")
     with torch.no_grad():
         if data_loader is not None:

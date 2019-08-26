@@ -15,6 +15,7 @@ class SlimTaco(nn.Module):
                  num_chars,
                  num_speakers,
                  r,
+                 mel_dim=80,
                  prenet_type="original",
                  prenet_dropout=0.5,
                  encoder_dropout=0.25,
@@ -27,7 +28,7 @@ class SlimTaco(nn.Module):
                  transition_activation="sigmoid",
                  init_embedding=True):
         super(SlimTaco, self).__init__()
-        self.n_mel_channels = 80
+        self.n_mel_channels = mel_dim
         self.n_frames_per_step = r
         self.use_gst = use_gst
         self.embedding_size = 256

@@ -289,6 +289,7 @@ def setup_model(num_chars, num_speakers, c):
         model = MyModel(
             num_chars=num_chars,
             num_speakers=num_speakers,
+            mel_dim=c.audio["num_mels"],
             r=c.r,
             prenet_type=c.prenet_type,
             prenet_dropout=c.prenet_dropout,
