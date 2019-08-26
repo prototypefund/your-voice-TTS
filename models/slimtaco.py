@@ -26,7 +26,8 @@ class SlimTaco(nn.Module):
                  ordered_attn=False,
                  diff_attn=False,
                  transition_activation="sigmoid",
-                 init_embedding=True):
+                 init_embedding=True,
+                 decoder_lstm_reg="dropout"):
         super(SlimTaco, self).__init__()
         self.n_mel_channels = mel_dim
         self.n_frames_per_step = r
@@ -59,7 +60,7 @@ class SlimTaco(nn.Module):
                                self.style_dim, self.speaker_dim,
                                prenet_type, prenet_dropout, query_dim,
                                transition_style, ordered_attn, diff_attn,
-                               transition_activation)
+                               transition_activation, decoder_lstm_reg)
         self.postnet = Postnet(self.n_mel_channels, dropout=postnet_dropout)
 
     @staticmethod

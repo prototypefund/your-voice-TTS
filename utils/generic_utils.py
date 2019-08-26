@@ -301,7 +301,8 @@ def setup_model(num_chars, num_speakers, c):
             diff_attn=c.get("diff_attn", False),
             transition_activation=c.get("transition_activation", "sigmoid"),
             use_gst=c.use_gst,
-            init_embedding=c.get("init_embedding", True))
+            init_embedding=c.get("init_embedding", True),
+            decoder_lstm_reg=c.get("decoder_lstm_reg", "dropout"))
     elif c.model.lower() == "parataco":
         model = MyModel(
             num_chars=num_chars,
