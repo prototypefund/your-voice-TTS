@@ -38,9 +38,10 @@ class SlimTaco(nn.Module):
 
         self.embedding = nn.Embedding(num_chars, self.embedding_size)
         if init_embedding:
-            std = sqrt(2.0 / (num_chars + self.embedding_size))
-            val = sqrt(3.0) * std  # uniform bounds for std
-            self.embedding.weight.data.uniform_(-val, val)
+            # std = sqrt(2.0 / (num_chars + self.embedding_size))
+            # val = sqrt(3.0) * std  # uniform bounds for std
+            # self.embedding.weight.data.uniform_(-val, val)
+            self.embedding.weight.data.normal_(0, 0.5)
         if num_speakers > 1:
             self.speaker_embedding = nn.Embedding(num_speakers,
                                                   self.speaker_dim)
