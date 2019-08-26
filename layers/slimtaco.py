@@ -3,6 +3,8 @@ from torch.autograd import Variable
 from torch import nn
 from torch.nn import functional as F
 import numpy as np
+
+from utils.nn import zoneout1, zoneout2
 from .common_layers import Prenet, Linear
 
 
@@ -126,7 +128,7 @@ class Decoder(nn.Module):
     #pylint: disable=attribute-defined-outside-init
     def __init__(self, in_features, memory_dim, r, style_dim, speaker_dim,
                  prenet_type, prenet_dropout, query_dim, transition_style,
-                 ordered_attn, diff_attn, transition_activation):
+                 ordered_attn, diff_attn, transition_activation, lstm_reg="dropout"):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
         self.r = r
@@ -144,6 +146,7 @@ class Decoder(nn.Module):
         self.gate_threshold = 0.5
         self.p_attention_dropout = 0.1
         self.p_decoder_dropout = 0.1
+        self.lstm_reg = lstm_reg
 
         self.prenet = Prenet(self.memory_dim * r, prenet_type,
                              prenet_dropout,
@@ -224,22 +227,51 @@ class Decoder(nn.Module):
 
     def decode(self, memory):
         query_input = torch.cat((memory, self.context, self.style, self.speaker), -1)
-        self.query, self.attention_rnn_cell_state = self.attention_rnn(
+        query, attention_rnn_cell_state = self.attention_rnn(
             query_input, (self.query, self.attention_rnn_cell_state))
-        self.query = F.dropout(
-            self.query, self.p_attention_dropout, self.training)
-        self.attention_rnn_cell_state = F.dropout(
-            self.attention_rnn_cell_state, self.p_attention_dropout, self.training)
+
+        if self.lstm_reg == "dropout":
+            self.query = F.dropout(
+                query, self.p_attention_dropout, self.training)
+            self.attention_rnn_cell_state = F.dropout(
+                attention_rnn_cell_state, self.p_attention_dropout,
+                self.training)
+        elif self.lstm_reg == "zoneout1":
+            self.query = zoneout1(query, self.query, self.p_attention_dropout,
+                                   self.training)
+            self.attention_rnn_cell_state = zoneout1(attention_rnn_cell_state,
+                                                     self.attention_rnn_cell_state,
+                                                     self.p_attention_dropout,
+                                                     self.training)
+        elif self.lstm_reg == "zoneout2":
+            self.query = zoneout2(query, self.query, self.p_attention_dropout,
+                                   self.training)
+            self.attention_rnn_cell_state = zoneout2(attention_rnn_cell_state,
+                                                     self.attention_rnn_cell_state,
+                                                     self.p_attention_dropout,
+                                                     self.training)
+
 
         self.context = self.attention(self.query, self.inputs, self.style, self.speaker)
 
         memory = torch.cat((self.query, self.context, self.style, self.speaker), -1)
-        self.decoder_hidden, self.decoder_cell = self.decoder_rnn(
+        decoder_hidden, decoder_cell = self.decoder_rnn(
             memory, (self.decoder_hidden, self.decoder_cell))
-        self.decoder_hidden = F.dropout(self.decoder_hidden,
-                                        self.p_decoder_dropout, self.training)
-        self.decoder_cell = F.dropout(self.decoder_cell,
-                                      self.p_decoder_dropout, self.training)
+        if self.lstm_reg == "dropout":
+            self.decoder_hidden = F.dropout(decoder_hidden,
+                                            self.p_decoder_dropout, self.training)
+            self.decoder_cell = F.dropout(decoder_cell,
+                                          self.p_decoder_dropout, self.training)
+        if self.lstm_reg == "zoneout1":
+            self.decoder_hidden = zoneout1(decoder_hidden, self.decoder_hidden,
+                                           self.p_decoder_dropout, self.training)
+            self.decoder_cell = zoneout1(decoder_cell, self.decoder_cell,
+                                         self.p_decoder_dropout, self.training)
+        if self.lstm_reg == "zoneout2":
+            self.decoder_hidden = zoneout2(decoder_hidden, self.decoder_hidden,
+                                           self.p_decoder_dropout, self.training)
+            self.decoder_cell = zoneout2(decoder_cell, self.decoder_cell,
+                                         self.p_decoder_dropout, self.training)
 
         decoder_hidden_context = torch.cat((self.decoder_hidden, self.context, self.style, self.speaker),
                                            dim=1)
