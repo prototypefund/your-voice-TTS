@@ -52,7 +52,7 @@ class Logger(object):
             if len(layer._modules) == 0 \
                     or isinstance(layer, torch.nn.Sequential):
                 name = ".".join(names)
-                print(name)
+                # print(name)
                 if name.endswith("_rnn"):
                     self.activation_names.append(f"{name}.hidden")
                     self.activation_names.append(f"{name}.cell")
@@ -114,13 +114,13 @@ class Logger(object):
         if len(self.activation_names) > 0:
             activation_means, activation_stddevs = \
                 self._concat_activation_stats()
-            for i, name in enumerate(self.activation_names):
+            for name in self.activation_names:
                 self.writer.add_histogram(
-                    "activation{}-{}-{}/means".format(i, name, suffix),
+                    "activation-{}/means-{}".format(name, suffix),
                     activation_means[name], step)
                 if not torch.isnan(activation_stddevs[name]).any():
                     self.writer.add_histogram(
-                        "activation{}-{}-{}/stddevs".format(i, name, suffix),
+                        "activation-{}/stddevs-{}".format(name, suffix),
                         activation_stddevs[name], step)
 
     def dict_to_tb_scalar(self, scope_name, stats, step):

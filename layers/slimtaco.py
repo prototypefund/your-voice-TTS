@@ -8,6 +8,15 @@ from utils.nn import zoneout1, zoneout2
 from .common_layers import Linear, LinearBN
 
 
+class Permutator(nn.Module):
+    def __init__(self, target_permutation):
+        super(Permutator, self).__init__()
+        self.target_permutation = target_permutation
+
+    def forward(self, inputs):
+        return inputs.permute(*self.target_permutation)
+
+
 class Prenet(nn.Module):
     def __init__(self,
                  in_features,
@@ -26,7 +35,10 @@ class Prenet(nn.Module):
             ])
         elif prenet_type == "original":
             self.layers = nn.ModuleList([
-                nn.Sequential(Linear(in_size, out_size, bias=bias), nn.ReLU(),
+                nn.Sequential(Linear(in_size, out_size, bias=bias, init_gain="relu"),
+                              nn.ReLU(), Permutator((1, 2, 0)),
+                              nn.BatchNorm1d(out_size, affine=False),
+                              Permutator((2, 0, 1)),
                               nn.Dropout(p=self.prenet_dropout))
                 for (in_size, out_size) in zip(in_features, out_features)
             ])
@@ -45,12 +57,12 @@ class ConvBNBlock(nn.Module):
         padding = (kernel_size - 1) // 2
         conv1d = nn.Conv1d(
             in_channels, out_channels, kernel_size, padding=padding)
-        norm = nn.BatchNorm1d(out_channels)
+        norm = nn.BatchNorm1d(out_channels, affine=False)
         dropout = nn.Dropout(p=dropout)
         if nonlinear == 'relu':
-            self.net = nn.Sequential(conv1d, norm, nn.ReLU(), dropout)
+            self.net = nn.Sequential(conv1d, nn.ReLU(), norm, dropout)
         elif nonlinear == 'tanh':
-            self.net = nn.Sequential(conv1d, norm, nn.Tanh(), dropout)
+            self.net = nn.Sequential(conv1d, nn.Tanh(), norm, dropout)
         else:
             self.net = nn.Sequential(conv1d, norm, dropout)
 
@@ -111,45 +123,50 @@ class Encoder(nn.Module):
                 ConvBNBlock(in_features, in_features, 5, 'relu',
                             dropout=dropout))
         self.convolutions = nn.ModuleList(convolutions)
-        self.lstm = nn.LSTM(
-            in_features,
-            int(in_features / 2),
-            num_layers=1,
-            batch_first=True,
-            bidirectional=True)
-        self.rnn_state = None
+        # self.lstm = nn.LSTM(
+        #     in_features,
+        #     int(in_features / 2),
+        #     num_layers=1,
+        #     batch_first=True,
+        #     bidirectional=True)
+        # self.rnn_state = None
 
-    def forward(self, x, input_lengths):
+    # def forward(self, inputs, input_lengths):
+    def forward(self, inputs):
+        x = inputs
         for conv in self.convolutions:
             x = conv(x)
-        x = x.transpose(1, 2)
-        input_lengths = input_lengths.cpu().numpy()
-        x = nn.utils.rnn.pack_padded_sequence(
-            x, input_lengths, batch_first=True)
-        self.lstm.flatten_parameters()
-        outputs, _ = self.lstm(x)
-        outputs, _ = nn.utils.rnn.pad_packed_sequence(
-            outputs,
-            batch_first=True,
-        )
+        outputs = (x + inputs) * 0.5
+        outputs = outputs.transpose(1, 2)
+        # input_lengths = input_lengths.cpu().numpy()
+        # x = nn.utils.rnn.pack_padded_sequence(
+        #     x, input_lengths, batch_first=True)
+        # self.lstm.flatten_parameters()
+        # outputs, _ = self.lstm(x)
+        # outputs, _ = nn.utils.rnn.pad_packed_sequence(
+        #     outputs,
+        #     batch_first=True,
+        # )
         return outputs
 
     def inference(self, x):
-        x = self.convolutions(x)
-        x = x.transpose(1, 2)
-        self.lstm.flatten_parameters()
-        outputs, _ = self.lstm(x)
-        return outputs
+        return self.forward(x)
+        # for conv in self.convolutions:
+        #     x = conv(x)
+        # x = x.transpose(1, 2)
+        # self.lstm.flatten_parameters()
+        # outputs, _ = self.lstm(x)
+        # return outputs
 
-    def inference_truncated(self, x):
-        """
-        Preserve encoder state for continuous inference
-        """
-        x = self.convolutions(x)
-        x = x.transpose(1, 2)
-        self.lstm.flatten_parameters()
-        outputs, self.rnn_state = self.lstm(x, self.rnn_state)
-        return outputs
+    # def inference_truncated(self, x):
+    #     """
+    #     Preserve encoder state for continuous inference
+    #     """
+    #     x = self.convolutions(x)
+    #     x = x.transpose(1, 2)
+    #     self.lstm.flatten_parameters()
+    #     outputs, self.rnn_state = self.lstm(x, self.rnn_state)
+    #     return outputs
 
 
 # adapted from https://github.com/NVIDIA/tacotron2/
@@ -158,15 +175,11 @@ class Decoder(nn.Module):
     #pylint: disable=attribute-defined-outside-init
     def __init__(self, in_features, memory_dim, r, style_dim, speaker_dim,
                  prenet_type, prenet_dropout, query_dim, transition_style,
-                 ordered_attn, diff_attn, transition_activation, lstm_reg="dropout"):
+                 lstm_reg="dropout"):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
         self.r = r
         self.context_dim = in_features
-        if ordered_attn:
-            self.context_dim += 32
-        if diff_attn:
-            self.context_dim *= 2
         self.query_dim = query_dim
         self.style_dim = style_dim
         self.speaker_dim = speaker_dim
@@ -184,19 +197,18 @@ class Decoder(nn.Module):
 
         self.attention_rnn = nn.LSTMCell(self.prenet_dim + self.context_dim + self.style_dim + self.speaker_dim,
                                          self.query_dim)
+        nn.GRUCell
+        self.set_forget_bias(self.attention_rnn)
 
         self.attention = SimpleAttention(query_dim=self.query_dim,
-                                         embedding_dim=in_features,
                                          context_dim=self.context_dim,
                                          style_dim=self.style_dim,
                                          speaker_dim=self.speaker_dim,
-                                         transition_style=transition_style,
-                                         ordered_attn=ordered_attn,
-                                         diff_attn=diff_attn,
-                                         transition_activation=transition_activation)
+                                         transition_style=transition_style)
 
         self.decoder_rnn = nn.LSTMCell(self.query_dim + self.context_dim + self.style_dim + self.speaker_dim,
                                        self.decoder_rnn_dim, 1)
+        self.set_forget_bias(self.decoder_rnn)
 
         self.linear_projection = Linear(self.decoder_rnn_dim + self.context_dim + self.style_dim + self.speaker_dim,
                                         self.memory_dim * r)
@@ -205,6 +217,14 @@ class Decoder(nn.Module):
         self.memory_init = nn.Embedding(1, self.memory_dim * self.r)
         self.decoder_rnn_inits = nn.Embedding(1, self.decoder_rnn_dim)
         self.memory_truncated = None
+
+    def set_forget_bias(self, lstmcell):
+        for names in lstmcell._parameters:
+            for name in filter(lambda n: "bias" in n, names):
+                bias = getattr(lstmcell, name)
+                n = bias.size(0)
+                start, end = n // 4, n // 2
+                bias.data[start:end].fill_(1.)
 
     def get_memory_start_frame(self, inputs):
         B = inputs.size(0)
@@ -407,28 +427,21 @@ class Decoder(nn.Module):
 class SimpleAttention(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
-    def __init__(self, query_dim, embedding_dim, context_dim, style_dim, speaker_dim,
-                 transition_style, ordered_attn, diff_attn, transition_activation="sigmoid"):
+    def __init__(self, query_dim, context_dim, style_dim, speaker_dim,
+                 transition_style):
         super(SimpleAttention, self).__init__()
         self.transition_style = transition_style
-        self.transition_activation = transition_activation
-        init_gain = transition_activation if transition_activation != "softsign" else "tanh"
-        self.ordered_attn = ordered_attn
-        self.diff_attn = diff_attn
 
-        self.ta_u = nn.Linear(query_dim + context_dim + style_dim + speaker_dim, 1,
-                           bias=True)
+        self.ta_u = nn.Sequential(Linear(query_dim + context_dim + style_dim + speaker_dim, 1,
+                                         bias=True, init_gain="sigmoid"),
+                                  nn.Sigmoid())
         if transition_style == "dynamicsq":
-            self.ta_sq = nn.Linear(
-                query_dim + context_dim + style_dim + speaker_dim, 1,
-                bias=True)
-        if self.ordered_attn:
-            self.order_net = OrderNet(embedding_dim, 1, 3, 32)
+            self.ta_sq = nn.Sequential(Linear(query_dim + context_dim + style_dim + speaker_dim, 1,
+                                              bias=True, init_gain="sigmoid"),
+                                       nn.Sigmoid())
         self.alpha = None
         self.u = None
         self.sq = None
-        if self.diff_attn:
-            self.prev_context = None
 
     def init_states(self, inputs):
         B = inputs.size(0)
@@ -439,8 +452,6 @@ class SimpleAttention(nn.Module):
              torch.zeros((B, T))[:, :-1] + 1e-7), dim=1).to(inputs.device)
         self.u = (0.5 * torch.ones((B, 1))).to(inputs.device)
         self.sq = (1.4 * torch.ones((B, 1))).to(inputs.device)
-        if self.diff_attn:
-            self.prev_context=torch.zeros((B, S)).to(inputs.device)
 
     def forward(self, query, inputs, style, speaker):
         fwd_shifted_alpha = F.pad(
@@ -453,35 +464,15 @@ class SimpleAttention(nn.Module):
         # renormalize attention weights
         self.alpha = alpha / alpha.sum(dim=1, keepdim=True)
 
-        if self.ordered_attn:
-            attended_inputs = self.alpha.unsqueeze(2) * inputs
-            order_information = self.order_net(attended_inputs.transpose(1, 2))
-            order_information = torch.sum(order_information, dim=2, keepdim=False)
-            context = torch.sum(attended_inputs, dim=1, keepdim=False)
-            context = torch.cat((context, order_information), dim=-1)
-        else:
-            context = torch.bmm(self.alpha.unsqueeze(1), inputs)
-            context = context.squeeze(1)
-
-        if self.diff_attn:
-            context_diff = context - self.prev_context
-            self.prev_context = context
-            context = torch.cat((context, context_diff), dim=-1)
+        context = torch.bmm(self.alpha.unsqueeze(1), inputs)
+        context = context.squeeze(1)
 
         # compute transition
         ta_input = torch.cat((context, query.squeeze(1), style, speaker), dim=-1)
-        if self.transition_activation == "sigmoid":
-            activation_func = lambda x: torch.sigmoid(x)
-        elif self.transition_activation == "tanh":
-            activation_func = lambda x: 0.5 + torch.tanh(x) * 0.5
-        elif self.transition_activation == "softsign":
-            activation_func = lambda x: 0.5 + F.softsign(x) * 0.5
-        else:
-            raise ValueError(f"Transition activation ${self.transition_activation} unknown.")
 
-        self. u = activation_func(self.ta_u(ta_input))
+        self.u = self.ta_u(ta_input)
         if self.transition_style == "dynamicsq":
-            self.sq = activation_func(self.ta_sq(ta_input)) + 1.0
+            self.sq = self.ta_sq(ta_input) + 1.0
         else:
             raise ValueError(f"Transition style ${self.transition_style} unknown")
 

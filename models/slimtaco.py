@@ -23,9 +23,6 @@ class SlimTaco(nn.Module):
                  query_dim=512,
                  transition_style="staticsq",
                  use_gst=False,
-                 ordered_attn=False,
-                 diff_attn=False,
-                 transition_activation="sigmoid",
                  init_embedding=True,
                  decoder_lstm_reg="dropout"):
         super(SlimTaco, self).__init__()
@@ -37,11 +34,6 @@ class SlimTaco(nn.Module):
         self.speaker_dim = 64
 
         self.embedding = nn.Embedding(num_chars, self.embedding_size)
-        if init_embedding:
-            # std = sqrt(2.0 / (num_chars + self.embedding_size))
-            # val = sqrt(3.0) * std  # uniform bounds for std
-            # self.embedding.weight.data.uniform_(-val, val)
-            self.embedding.weight.data.normal_(0, 0.5)
         if num_speakers > 1:
             self.speaker_embedding = nn.Embedding(num_speakers,
                                                   self.speaker_dim)
@@ -60,8 +52,7 @@ class SlimTaco(nn.Module):
         self.decoder = Decoder(self.embedding_size, self.n_mel_channels, r,
                                self.style_dim, self.speaker_dim,
                                prenet_type, prenet_dropout, query_dim,
-                               transition_style, ordered_attn, diff_attn,
-                               transition_activation, decoder_lstm_reg)
+                               transition_style, decoder_lstm_reg)
         self.postnet = Postnet(self.n_mel_channels, dropout=postnet_dropout)
 
     @staticmethod
@@ -75,7 +66,7 @@ class SlimTaco(nn.Module):
         # compute mask for padding
         mask = sequence_mask(text_lengths).to(text.device)
         embedded_inputs = self.embedding(text).transpose(1, 2)
-        encoder_outputs = self.encoder(embedded_inputs, text_lengths)
+        encoder_outputs = self.encoder(embedded_inputs)
         # encoder_outputs = self._add_speaker_embedding(encoder_outputs,
         #                                               speaker_ids)
         if hasattr(self, "speaker_embedding") and speaker_ids is not None:

@@ -689,7 +689,7 @@ def main(args): #pylint: disable=redefined-outer-name
     current_step = 0
 
     for epoch in range(0, c.epochs):
-        if epoch % 50 == 0:
+        if epoch % 1 == 0:
             analyze_activations(model, eval_loader, current_step, "train")
             analyze_activations(model, eval_loader, current_step, "eval")
         train_loss, current_step = train(model, criterion, criterion_alignment,
