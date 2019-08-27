@@ -5,7 +5,36 @@ from torch.nn import functional as F
 import numpy as np
 
 from utils.nn import zoneout1, zoneout2
-from .common_layers import Prenet, Linear
+from .common_layers import Linear, LinearBN
+
+
+class Prenet(nn.Module):
+    def __init__(self,
+                 in_features,
+                 prenet_type="original",
+                 prenet_dropout=0.5,
+                 out_features=[256, 256],
+                 bias=True):
+        super(Prenet, self).__init__()
+        self.prenet_type = prenet_type
+        self.prenet_dropout = prenet_dropout
+        in_features = [in_features] + out_features[:-1]
+        if prenet_type == "bn":
+            self.layers = nn.ModuleList([
+                LinearBN(in_size, out_size, bias=bias)
+                for (in_size, out_size) in zip(in_features, out_features)
+            ])
+        elif prenet_type == "original":
+            self.layers = nn.ModuleList([
+                nn.Sequential(Linear(in_size, out_size, bias=bias), nn.ReLU(),
+                              nn.Dropout(p=self.prenet_dropout))
+                for (in_size, out_size) in zip(in_features, out_features)
+            ])
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
 
 
 class ConvBNBlock(nn.Module):
@@ -81,7 +110,7 @@ class Encoder(nn.Module):
             convolutions.append(
                 ConvBNBlock(in_features, in_features, 5, 'relu',
                             dropout=dropout))
-        self.convolutions = nn.Sequential(*convolutions)
+        self.convolutions = nn.ModuleList(convolutions)
         self.lstm = nn.LSTM(
             in_features,
             int(in_features / 2),
@@ -91,7 +120,8 @@ class Encoder(nn.Module):
         self.rnn_state = None
 
     def forward(self, x, input_lengths):
-        x = self.convolutions(x)
+        for conv in self.convolutions:
+            x = conv(x)
         x = x.transpose(1, 2)
         input_lengths = input_lengths.cpu().numpy()
         x = nn.utils.rnn.pack_padded_sequence(
@@ -291,7 +321,7 @@ class Decoder(nn.Module):
 
         outputs, alignments = [], []
         while len(outputs) < memory_steps.size(0) - 1:
-            if len(outputs) == 0:
+            if len(outputs) == 0 or teacher_keep_rate == 1.0:
                 memory = memory_steps[len(outputs)]
             else:
                 given_memory = memory_steps[len(outputs)]

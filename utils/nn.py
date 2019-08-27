@@ -5,8 +5,7 @@ import torch
 def zoneout1(new_state, state, zoneout_prob, is_training):
     """As in a tensorflow implementation."""
     if is_training:
-        new_state = (1 - zoneout_prob) * \
-                    F.dropout(new_state - state, (1 - zoneout_prob)) + state
+        new_state = F.dropout(new_state - state, zoneout_prob) + state
     else:
         new_state = zoneout_prob * state + (1 - zoneout_prob) * new_state
     return new_state

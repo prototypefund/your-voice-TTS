@@ -453,6 +453,7 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
 
 
 def test(model, criterion, criterion_alignment, ap, current_step, epoch):
+    model.eval()
     if c.test_sentences_file is None:
         test_sentences = [
             # "Am Ende gibt es nur einen Verlierer: die SPD. Die Sozialdemokraten haben mit ihrem 'Nein' zu Ursula von der Leyen weder sich noch dem Spitzenkandidatenprinzip geholfen.",
@@ -521,6 +522,61 @@ def test(model, criterion, criterion_alignment, ap, current_step, epoch):
                     traceback.print_exc()
         tb_logger.tb_test_audios(current_step, test_audios, c.audio['sample_rate'])
         tb_logger.tb_test_figures(current_step, test_figures)
+
+
+def analyze_activations(model, data_loader, current_step, mode="train"):
+    if c.use_speaker_embedding:
+        speaker_mapping = load_speaker_mapping(OUT_PATH)
+    if mode == "train":
+        model.train()
+    else:
+        model.eval()
+    teacher_keep_rate = c.get("teacher_keep_rate", 1.0)
+    print(f"\n > analyzing activations: {mode}")
+    start_time = time.time()
+    tb_logger.install_activation_hooks(model)
+    with torch.no_grad():
+        for num_iter, data in enumerate(data_loader):
+
+            # setup input data
+            text_input = data[0]
+            text_lengths = data[1]
+            speaker_names = data[2]
+            linear_input = data[3] if c.model == "Tacotron" else None
+            mel_input = data[4]
+            mel_lengths = data[5]
+            # stop_targets = data[6]
+            alignment_targets = data[7]
+            alignment_mask = data[8]
+
+            if c.use_speaker_embedding:
+                speaker_ids = [speaker_mapping[speaker_name]
+                               for speaker_name in speaker_names]
+                speaker_ids = torch.LongTensor(speaker_ids)
+            else:
+                speaker_ids = None
+
+            # dispatch data to GPU
+            if use_cuda:
+                text_input = text_input.cuda()
+                mel_input = mel_input.cuda()
+                mel_lengths = mel_lengths.cuda()
+                linear_input = linear_input.cuda() if c.model == "Tacotron" else None
+                # stop_targets = stop_targets.cuda()
+                alignment_targets = alignment_targets.cuda()
+                alignment_mask = alignment_mask.cuda()
+                if speaker_ids is not None:
+                    speaker_ids = speaker_ids.cuda()
+
+            # forward pass
+            decoder_output, postnet_output, alignments =\
+                model.forward(text_input, text_lengths, mel_input,
+                              speaker_ids=speaker_ids,
+                              teacher_keep_rate=teacher_keep_rate)
+
+        tb_logger.log_activation_stats(current_step, mode)
+        tb_logger.remove_activation_hooks()
+    print(f"Analysis done; took {time.time() - start_time} seconds")
 
 
 #FIXME: move args definition/parsing inside of main?
@@ -630,8 +686,12 @@ def main(args): #pylint: disable=redefined-outer-name
 
     train_loader, train_dataset = setup_loader(ap, is_val=False, verbose=True)
     eval_loader, eval_dataset = setup_loader(ap, is_val=True)
+    current_step = 0
 
     for epoch in range(0, c.epochs):
+        if epoch % 50 == 0:
+            analyze_activations(model, eval_loader, current_step, "train")
+            analyze_activations(model, eval_loader, current_step, "eval")
         train_loss, current_step = train(model, criterion, criterion_alignment,
                                          optimizer, None, scheduler,
                                          ap, epoch, train_loader)

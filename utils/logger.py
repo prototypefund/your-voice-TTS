@@ -1,4 +1,8 @@
 import traceback
+from collections import defaultdict
+from functools import partial
+import torch
+
 from tensorboardX import SummaryWriter
 
 
@@ -8,10 +12,78 @@ class Logger(object):
         self.train_stats = {}
         self.eval_stats = {}
         self.parameter_reference = None
+        self.activation_means = defaultdict(list)
+        self.activation_stds = defaultdict(list)
+        self.activation_names = []
+        self.hook_handles = []
 
     def save_parameters_for_reference(self, model):
         self.parameter_reference = {name: param.clone()
                                     for name, param in model.named_parameters()}
+
+    def install_activation_hooks(self, model):
+        if len(self.hook_handles) != 0:
+            raise RuntimeError("Can't install new hooks before "
+                               "releasing old ones")
+
+        def _activation_hook(module, in_tensor, out_tensor, name):
+            with torch.no_grad():
+                if name == "encoder.lstm":
+                    out_tensor = out_tensor[0][0].cpu()
+                    self.activation_means[name].append(out_tensor.mean(dim=1))
+                    self.activation_stds[name].append(out_tensor.std(dim=1))
+                elif name == "decoder.attention_rnn" or name == "decoder.decoder_rnn":
+                    out_tensor = (out_tensor[0].cpu(),
+                                  out_tensor[1].cpu())
+
+                    self.activation_means[f"{name}.hidden"].append(out_tensor[0].mean(dim=1))
+                    self.activation_means[f"{name}.cell"].append(out_tensor[1].mean(dim=1))
+                    self.activation_stds[f"{name}.hidden"].append(out_tensor[0].std(dim=1))
+                    self.activation_stds[f"{name}.cell"].append(out_tensor[1].std(dim=1))
+                else:
+                    out_tensor = out_tensor.cpu()
+                    if "convolutions" in name:
+                        out_tensor = out_tensor.transpose(1, 2)
+                    out_tensor = out_tensor.reshape((-1, out_tensor.size(-1)))
+                    self.activation_means[name].append(out_tensor.mean(dim=1))
+                    self.activation_stds[name].append(out_tensor.std(dim=1))
+
+        def hook_all(layer, names):
+            if len(layer._modules) == 0 \
+                    or isinstance(layer, torch.nn.Sequential):
+                name = ".".join(names)
+                print(name)
+                if name.endswith("_rnn"):
+                    self.activation_names.append(f"{name}.hidden")
+                    self.activation_names.append(f"{name}.cell")
+                else:
+                    self.activation_names.append(name)
+                self.hook_handles.append(
+                    layer.register_forward_hook(
+                        partial(_activation_hook, name=name)
+                    )
+                )
+            else:
+                for name, next_layer in layer._modules.items():
+                    hook_all(next_layer, names + [name])
+
+        hook_all(model, [])
+
+    def remove_activation_hooks(self):
+        for hook in self.hook_handles:
+            hook.remove()
+
+        self.activation_means = defaultdict(list)
+        self.activation_stds = defaultdict(list)
+        self.activation_names = []
+        self.hook_handles = []
+
+    def _concat_activation_stats(self):
+        activation_stds = {name: torch.cat(t, dim=0)
+                              for name, t in self.activation_stds.items()}
+        activation_means = {name: torch.cat(t, dim=0)
+                            for name, t in self.activation_means.items()}
+        return activation_means, activation_stds
 
     def tb_model_weights(self, model, step):
         layer_num = 1
@@ -37,6 +109,19 @@ class Logger(object):
                 param - self.parameter_reference[name],
                 step)
             layer_num += 1
+
+    def log_activation_stats(self, step, suffix):
+        if len(self.activation_names) > 0:
+            activation_means, activation_stddevs = \
+                self._concat_activation_stats()
+            for i, name in enumerate(self.activation_names):
+                self.writer.add_histogram(
+                    "activation{}-{}-{}/means".format(i, name, suffix),
+                    activation_means[name], step)
+                if not torch.isnan(activation_stddevs[name]).any():
+                    self.writer.add_histogram(
+                        "activation{}-{}-{}/stddevs".format(i, name, suffix),
+                        activation_stddevs[name], step)
 
     def dict_to_tb_scalar(self, scope_name, stats, step):
         for key, value in stats.items():
