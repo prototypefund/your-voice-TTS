@@ -2,6 +2,7 @@ import traceback
 from collections import defaultdict
 from functools import partial
 import torch
+from torch import nn
 
 from tensorboardX import SummaryWriter
 
@@ -33,13 +34,19 @@ class Logger(object):
                     self.activation_means[name].append(out_tensor.mean(dim=1))
                     self.activation_stds[name].append(out_tensor.std(dim=1))
                 elif name == "decoder.attention_rnn" or name == "decoder.decoder_rnn":
-                    out_tensor = (out_tensor[0].cpu(),
-                                  out_tensor[1].cpu())
+                    if isinstance(module, nn.LSTMCell):
+                        out_tensor = (out_tensor[0].cpu(),
+                                      out_tensor[1].cpu())
 
-                    self.activation_means[f"{name}.hidden"].append(out_tensor[0].mean(dim=1))
-                    self.activation_means[f"{name}.cell"].append(out_tensor[1].mean(dim=1))
-                    self.activation_stds[f"{name}.hidden"].append(out_tensor[0].std(dim=1))
-                    self.activation_stds[f"{name}.cell"].append(out_tensor[1].std(dim=1))
+                        self.activation_means[f"{name}.hidden"].append(out_tensor[0].mean(dim=1))
+                        self.activation_means[f"{name}.cell"].append(out_tensor[1].mean(dim=1))
+                        self.activation_stds[f"{name}.hidden"].append(out_tensor[0].std(dim=1))
+                        self.activation_stds[f"{name}.cell"].append(out_tensor[1].std(dim=1))
+                    else:
+                        self.activation_means[f"{name}.hidden"].append(
+                            out_tensor.mean(dim=1))
+                        self.activation_stds[f"{name}.hidden"].append(
+                            out_tensor.std(dim=1))
                 else:
                     out_tensor = out_tensor.cpu()
                     if "convolutions" in name:
@@ -55,7 +62,8 @@ class Logger(object):
                 # print(name)
                 if name.endswith("_rnn"):
                     self.activation_names.append(f"{name}.hidden")
-                    self.activation_names.append(f"{name}.cell")
+                    if isinstance(layer, nn.LSTMCell):
+                        self.activation_names.append(f"{name}.cell")
                 else:
                     self.activation_names.append(name)
                 self.hook_handles.append(
@@ -86,29 +94,27 @@ class Logger(object):
         return activation_means, activation_stds
 
     def tb_model_weights(self, model, step):
-        layer_num = 1
         for name, param in model.named_parameters():
             self.writer.add_scalar(
-                "layer{}-{}/max".format(layer_num, name),
+                f"{name}/param-max",
                 param.max(), step)
             self.writer.add_scalar(
-                "layer{}-{}/min".format(layer_num, name),
+                f"{name}/param-min",
                 param.min(), step)
             self.writer.add_scalar(
-                "layer{}-{}/mean".format(layer_num, name),
+                f"{name}/param-mean",
                 param.mean(), step)
             self.writer.add_scalar(
-                "layer{}-{}/std".format(layer_num, name),
+                f"{name}/param-std",
                 param.std(), step)
             self.writer.add_histogram(
-                "layer{}-{}/param".format(layer_num, name), param, step)
+                f"{name}/param", param, step)
             self.writer.add_histogram(
-                "layer{}-{}/grad".format(layer_num, name), param.grad, step)
+                f"{name}/grad", param.grad, step)
             self.writer.add_histogram(
-                "layer{}-{}/movement".format(layer_num, name),
+                f"{name}/param-movement",
                 param - self.parameter_reference[name],
                 step)
-            layer_num += 1
 
     def log_activation_stats(self, step, suffix):
         if len(self.activation_names) > 0:
@@ -116,11 +122,11 @@ class Logger(object):
                 self._concat_activation_stats()
             for name in self.activation_names:
                 self.writer.add_histogram(
-                    "activation-{}/means-{}".format(name, suffix),
+                    f"{name}/activation-means-{suffix}",
                     activation_means[name], step)
                 if not torch.isnan(activation_stddevs[name]).any():
                     self.writer.add_histogram(
-                        "activation-{}/stddevs-{}".format(name, suffix),
+                        f"{name}/activation-stddevs-{suffix}",
                         activation_stddevs[name], step)
 
     def dict_to_tb_scalar(self, scope_name, stats, step):

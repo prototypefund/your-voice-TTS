@@ -50,7 +50,6 @@ class SlimTaco(nn.Module):
             #                              scoring_function_name="tanh",
             #                              use_separate_keys=True)
         self.decoder = Decoder(self.embedding_size, self.n_mel_channels, r,
-                               self.style_dim, self.speaker_dim,
                                prenet_type, prenet_dropout, query_dim,
                                transition_style, decoder_lstm_reg)
         self.postnet = Postnet(self.n_mel_channels, dropout=postnet_dropout)
@@ -82,8 +81,7 @@ class SlimTaco(nn.Module):
             gst_outputs = None
 
         mel_outputs, alignments = self.decoder(
-            encoder_outputs, mel_specs, gst_outputs,
-            speaker_embedding, mask, teacher_keep_rate)
+            encoder_outputs, mel_specs, mask, teacher_keep_rate)
         mel_outputs_postnet = self.postnet(mel_outputs)
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
         mel_outputs, mel_outputs_postnet, alignments = self.shape_outputs(
@@ -107,9 +105,7 @@ class SlimTaco(nn.Module):
         else:
             gst_outputs = None
 
-        mel_outputs, alignments = self.decoder.inference(encoder_outputs,
-                                                         gst_outputs,
-                                                         speaker_embedding)
+        mel_outputs, alignments = self.decoder.inference(encoder_outputs)
         mel_outputs_postnet = self.postnet(mel_outputs)
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
         mel_outputs, mel_outputs_postnet, alignments = self.shape_outputs(
