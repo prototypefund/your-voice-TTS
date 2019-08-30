@@ -201,10 +201,10 @@ class Decoder(nn.Module):
                              prenet_dropout,
                              [self.prenet_dim, self.prenet_dim], bias=False)
 
-        # self.attention_rnn = nn.LSTMCell(self.prenet_dim + self.context_dim + self.style_dim + self.speaker_dim,
-        #                                  self.query_dim)
-        self.attention_rnn = nn.GRUCell(self.prenet_dim + self.context_dim,
-                                        self.query_dim)
+        self.attention_rnn = nn.LSTMCell(self.prenet_dim + self.context_dim,
+                                         self.query_dim)
+        # self.attention_rnn = nn.GRUCell(self.prenet_dim + self.context_dim,
+        #                                 self.query_dim)
         # self.set_forget_bias(self.attention_rnn)
         # self.init_gru(self.attention_rnn)
 
@@ -212,10 +212,10 @@ class Decoder(nn.Module):
                                          context_dim=self.context_dim,
                                          transition_style=transition_style)
 
-        # self.decoder_rnn = nn.LSTMCell(self.query_dim + self.context_dim + self.style_dim + self.speaker_dim,
-        #                                self.decoder_rnn_dim, 1)
-        self.decoder_rnn = nn.GRUCell(self.query_dim + self.context_dim,
-                                      self.decoder_rnn_dim, 1)
+        self.decoder_rnn = nn.LSTMCell(self.query_dim + self.context_dim,
+                                       self.decoder_rnn_dim, 1)
+        # self.decoder_rnn = nn.GRUCell(self.query_dim + self.context_dim,
+        #                               self.decoder_rnn_dim, 1)
         # self.set_forget_bias(self.decoder_rnn)
         # self.init_gru(self.decoder_rnn)
 
@@ -284,40 +284,40 @@ class Decoder(nn.Module):
 
     def decode(self, memory):
         query_input = torch.cat((memory, self.context), -1)
-        # query, attention_rnn_cell_state = self.attention_rnn(
-        #     query_input, (self.query, self.attention_rnn_cell_state))
-        query = self.attention_rnn(query_input, self.query)
+        query, attention_rnn_cell_state = self.attention_rnn(
+            query_input, (self.query, self.attention_rnn_cell_state))
+        # query = self.attention_rnn(query_input, self.query)
         if self.lstm_reg == "dropout":
             self.query = F.dropout(
                 query, self.p_attention_dropout, self.training)
-            # self.attention_rnn_cell_state = F.dropout(
-            #     attention_rnn_cell_state, self.p_attention_dropout,
-            #     self.training)
+            self.attention_rnn_cell_state = F.dropout(
+                attention_rnn_cell_state, self.p_attention_dropout,
+                self.training)
         elif self.lstm_reg == "zoneout1":
             self.query = zoneout1(query, self.query, self.p_attention_dropout,
                                    self.training)
-            # self.attention_rnn_cell_state = zoneout1(attention_rnn_cell_state,
-            #                                          self.attention_rnn_cell_state,
-            #                                          self.p_attention_dropout,
-            #                                          self.training)
+            self.attention_rnn_cell_state = zoneout1(attention_rnn_cell_state,
+                                                     self.attention_rnn_cell_state,
+                                                     self.p_attention_dropout,
+                                                     self.training)
 
         self.context = self.attention(self.query, self.inputs)
 
         memory = torch.cat((self.query, self.context), -1)
-        # decoder_hidden, decoder_cell = self.decoder_rnn(
-        #     memory, (self.decoder_hidden, self.decoder_cell))
-        decoder_hidden = self.decoder_rnn(
-            memory, self.decoder_hidden)
+        decoder_hidden, decoder_cell = self.decoder_rnn(
+            memory, (self.decoder_hidden, self.decoder_cell))
+        # decoder_hidden = self.decoder_rnn(
+        #     memory, self.decoder_hidden)
         if self.lstm_reg == "dropout":
             self.decoder_hidden = F.dropout(decoder_hidden,
                                             self.p_decoder_dropout, self.training)
-            # self.decoder_cell = F.dropout(decoder_cell,
-            #                               self.p_decoder_dropout, self.training)
+            self.decoder_cell = F.dropout(decoder_cell,
+                                          self.p_decoder_dropout, self.training)
         if self.lstm_reg == "zoneout1":
             self.decoder_hidden = zoneout1(decoder_hidden, self.decoder_hidden,
                                            self.p_decoder_dropout, self.training)
-            # self.decoder_cell = zoneout1(decoder_cell, self.decoder_cell,
-            #                              self.p_decoder_dropout, self.training)
+            self.decoder_cell = zoneout1(decoder_cell, self.decoder_cell,
+                                         self.p_decoder_dropout, self.training)
 
         decoder_hidden_context = torch.cat((self.decoder_hidden, self.context),
                                            dim=1)

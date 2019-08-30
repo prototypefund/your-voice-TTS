@@ -24,16 +24,19 @@ class SlimTaco(nn.Module):
                  transition_style="staticsq",
                  use_gst=False,
                  init_embedding=True,
-                 decoder_lstm_reg="dropout"):
+                 decoder_lstm_reg="dropout",
+                 embedding_size=256):
         super(SlimTaco, self).__init__()
         self.n_mel_channels = mel_dim
         self.n_frames_per_step = r
         self.use_gst = use_gst
-        self.embedding_size = 256
+        self.embedding_size = embedding_size
         self.style_dim = 128
         self.speaker_dim = 64
 
         self.embedding = nn.Embedding(num_chars, self.embedding_size)
+        # make padding char zero
+        self.embedding.weight.data[0].fill_(0.0)
         if num_speakers > 1:
             self.speaker_embedding = nn.Embedding(num_speakers,
                                                   self.speaker_dim)

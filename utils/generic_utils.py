@@ -298,7 +298,8 @@ def setup_model(num_chars, num_speakers, c):
             query_dim=c.query_dim,
             transition_style=c.transition_style,
             use_gst=c.use_gst,
-            decoder_lstm_reg=c.get("decoder_lstm_reg", "dropout"))
+            decoder_lstm_reg=c.get("decoder_lstm_reg", "dropout"),
+            embedding_size=c.get("embedding_size", 256))
     elif c.model.lower() == "parataco":
         model = MyModel(
             num_chars=num_chars,
