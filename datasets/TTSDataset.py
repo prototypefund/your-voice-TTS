@@ -238,8 +238,8 @@ class MyDataset(Dataset):
             align_mask = np.expand_dims(align_mask, 1)
             max_decoder_steps = mel.shape[1] // self.outputs_per_step
             align_mask = np.repeat(align_mask, max_decoder_steps, 1)
-            align_mask = torch.cuda.ByteTensor(align_mask)
-            decoder_steps = torch.ceil(torch.cuda.LongTensor(mel_lengths).float() / self.outputs_per_step).long()
+            align_mask = torch.ByteTensor(align_mask)
+            decoder_steps = torch.ceil(torch.FloatTensor(mel_lengths) / self.outputs_per_step).long()
             seq_mask = sequence_mask(decoder_steps, max_decoder_steps)
             seq_mask = seq_mask.unsqueeze(2).expand(-1, -1, align_mask.size(2))
             align_mask = align_mask * seq_mask
