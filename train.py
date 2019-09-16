@@ -34,6 +34,8 @@ torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = False
 torch.manual_seed(54321)
 use_cuda = torch.cuda.is_available()
+if use_cuda:
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
 num_gpus = torch.cuda.device_count()
 print(" > Using CUDA: ", use_cuda)
 print(" > Number of GPUs: ", num_gpus)
