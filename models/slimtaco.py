@@ -68,7 +68,7 @@ class SlimTaco(nn.Module):
         # compute mask for padding
         mask = sequence_mask(text_lengths).to(text.device)
         embedded_inputs = self.embedding(text).transpose(1, 2)
-        encoder_outputs = self.encoder(embedded_inputs)
+        encoder_outputs = self.encoder(embedded_inputs, text_lengths)
         # encoder_outputs = self._add_speaker_embedding(encoder_outputs,
         #                                               speaker_ids)
         if hasattr(self, "speaker_embedding") and speaker_ids is not None:

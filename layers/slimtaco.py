@@ -4,21 +4,8 @@ from torch import nn
 from torch.nn import functional as F
 import numpy as np
 
-from utils.nn import zoneout1, zoneout2
+from utils.nn import zoneout1
 from .common_layers import Linear, LinearBN
-
-
-class Permutator(nn.Module):
-    def __init__(self, target_permutation):
-        super(Permutator, self).__init__()
-        self.target_permutation = target_permutation
-
-    def forward(self, inputs):
-        if len(inputs.shape) == 3:
-            out = inputs.permute(*self.target_permutation)
-        else:
-            out = inputs
-        return out
 
 
 class Prenet(nn.Module):
@@ -40,16 +27,13 @@ class Prenet(nn.Module):
         elif prenet_type == "original":
             self.layers = nn.ModuleList([
                 nn.Sequential(Linear(in_size, out_size, bias=bias, init_gain="relu"),
-                              nn.ReLU(), Permutator((1, 2, 0)),
-                              nn.BatchNorm1d(out_size, affine=False),
-                              Permutator((2, 0, 1)),
-                              nn.Dropout(p=self.prenet_dropout))
+                              nn.ReLU())
                 for (in_size, out_size) in zip(in_features, out_features)
             ])
 
     def forward(self, x):
         for layer in self.layers:
-            x = layer(x)
+            x = F.dropout(layer(x), p=self.prenet_dropout, training=True)
         return x
 
 
@@ -61,42 +45,21 @@ class ConvBNBlock(nn.Module):
         padding = (kernel_size - 1) // 2
         conv1d = nn.Conv1d(
             in_channels, out_channels, kernel_size, padding=padding)
-        norm = nn.BatchNorm1d(out_channels, affine=False)
+        norm = nn.BatchNorm1d(out_channels)
         dropout = nn.Dropout(p=dropout)
         if nonlinear == 'relu':
             torch.nn.init.kaiming_normal_(conv1d.weight.data, a=0,
                                           nonlinearity=nonlinear)
             torch.nn.init.constant_(conv1d.bias.data, 0)
-            self.net = nn.Sequential(conv1d, nn.ReLU(), norm, dropout)
+            self.net = nn.Sequential(conv1d, norm, nn.ReLU(), dropout)
         elif nonlinear == 'tanh':
-            self.net = nn.Sequential(conv1d, nn.Tanh(), norm, dropout)
+            self.net = nn.Sequential(conv1d, norm, nn.Tanh(), dropout)
         else:
             self.net = nn.Sequential(conv1d, norm, dropout)
 
     def forward(self, x):
         output = self.net(x)
         return output
-
-
-class OrderNet(nn.Module):
-    def __init__(self, in_dim, num_convs, kernel_size, out_dim,
-                 dropout=0.0):
-        super(OrderNet, self).__init__()
-        self.convolutions = nn.ModuleList()
-        self.convolutions.append(
-            ConvBNBlock(in_dim, out_dim, kernel_size=kernel_size,
-                        nonlinear='relu',
-                        dropout=dropout))
-        for _ in range(1, num_convs):
-            self.convolutions.append(
-                ConvBNBlock(out_dim, out_dim, kernel_size=kernel_size,
-                            nonlinear='relu',
-                            dropout=dropout))
-
-    def forward(self, x):
-        for layer in self.convolutions:
-            x = layer(x)
-        return x
 
 
 class Postnet(nn.Module):
@@ -124,57 +87,53 @@ class Encoder(nn.Module):
 
     def __init__(self, in_features=512, num_convs=3, dropout=0.5):
         super(Encoder, self).__init__()
-        self.var_factor = np.sqrt(0.5)
         convolutions = []
         for _ in range(num_convs):
             convolutions.append(
                 ConvBNBlock(in_features, in_features, 5, 'relu',
                             dropout=dropout))
         self.convolutions = nn.ModuleList(convolutions)
-        # self.lstm = nn.LSTM(
-        #     in_features,
-        #     int(in_features / 2),
-        #     num_layers=1,
-        #     batch_first=True,
-        #     bidirectional=True)
-        # self.rnn_state = None
+        self.lstm = nn.LSTM(
+            in_features,
+            int(in_features / 2),
+            num_layers=1,
+            batch_first=True,
+            bidirectional=True)
+        self.rnn_state = None
 
-    # def forward(self, inputs, input_lengths):
-    def forward(self, inputs):
-        x = inputs
+    def forward(self, x, input_lengths):
         for conv in self.convolutions:
             x = conv(x)
-        outputs = (x + inputs) * self.var_factor
-        outputs = outputs.transpose(1, 2)
-        # input_lengths = input_lengths.cpu().numpy()
-        # x = nn.utils.rnn.pack_padded_sequence(
-        #     x, input_lengths, batch_first=True)
-        # self.lstm.flatten_parameters()
-        # outputs, _ = self.lstm(x)
-        # outputs, _ = nn.utils.rnn.pad_packed_sequence(
-        #     outputs,
-        #     batch_first=True,
-        # )
+        x = x.transpose(1, 2)
+        input_lengths = input_lengths.cpu().numpy()
+        x = nn.utils.rnn.pack_padded_sequence(
+            x, input_lengths, batch_first=True)
+        self.lstm.flatten_parameters()
+        outputs, _ = self.lstm(x)
+        outputs, _ = nn.utils.rnn.pad_packed_sequence(
+            outputs,
+            batch_first=True,
+        )
         return outputs
 
     def inference(self, x):
-        return self.forward(x)
-        # for conv in self.convolutions:
-        #     x = conv(x)
-        # x = x.transpose(1, 2)
-        # self.lstm.flatten_parameters()
-        # outputs, _ = self.lstm(x)
-        # return outputs
+        for conv in self.convolutions:
+            x = conv(x)
+        x = x.transpose(1, 2)
+        self.lstm.flatten_parameters()
+        outputs, _ = self.lstm(x)
+        return outputs
 
-    # def inference_truncated(self, x):
-    #     """
-    #     Preserve encoder state for continuous inference
-    #     """
-    #     x = self.convolutions(x)
-    #     x = x.transpose(1, 2)
-    #     self.lstm.flatten_parameters()
-    #     outputs, self.rnn_state = self.lstm(x, self.rnn_state)
-    #     return outputs
+    def inference_truncated(self, x):
+        """
+        Preserve encoder state for continuous inference
+        """
+        for conv in self.convolutions:
+            x = conv(x)
+        x = x.transpose(1, 2)
+        self.lstm.flatten_parameters()
+        outputs, self.rnn_state = self.lstm(x, self.rnn_state)
+        return outputs
 
 
 # adapted from https://github.com/NVIDIA/tacotron2/
@@ -208,10 +167,10 @@ class Decoder(nn.Module):
         # self.set_forget_bias(self.attention_rnn)
         # self.init_gru(self.attention_rnn)
 
-        self.attention = SimpleAttention(query_dim=self.query_dim,
-                                         context_dim=self.context_dim,
-                                         transition_style=transition_style)
-
+        # self.attention = SimpleAttention(query_dim=self.query_dim,
+        #                                  context_dim=self.context_dim,
+        #                                  transition_style=transition_style)
+        self.attention = GravesAttention(query_dim)
         self.decoder_rnn = nn.LSTMCell(self.query_dim + self.context_dim,
                                        self.decoder_rnn_dim, 1)
         # self.decoder_rnn = nn.GRUCell(self.query_dim + self.context_dim,
@@ -473,3 +432,64 @@ class SimpleAttention(nn.Module):
             raise ValueError(f"Transition style ${self.transition_style} unknown")
 
         return context
+
+
+def getLinear(dim_in, dim_out):
+    return nn.Sequential(Linear(dim_in, dim_in//10, init_gain="relu"),
+                         nn.ReLU(),
+                         Linear(dim_in//10, dim_out))
+
+
+class GravesAttention(nn.Module):
+    COEF = 0.3989422917366028  # numpy.sqrt(1/(2*numpy.pi))
+
+    def __init__(self, mem_elem, K=10, attention_alignment=0.05):
+        super(GravesAttention, self).__init__()
+        self.K = K
+        self.attention_alignment = attention_alignment
+        self.epsilon = 1e-5
+
+        self.sm = nn.Softmax(dim=-1)
+        self.N_a = getLinear(mem_elem, 3*K)
+        self.J = None
+        self.mu_tm1 = None
+        self.alpha = None
+
+    def init_states(self, inputs):
+        B = inputs.size(0)
+        T = inputs.size(1)
+        self.J = Variable(torch.arange(0, T)
+                          .expand_as(torch.Tensor(B,
+                                                  self.K,
+                                                  T)),
+                          requires_grad=False).type(torch.FloatTensor).to(inputs.device)
+        self.mu_tm1 = torch.zeros((B, self.K)).to(inputs.device)
+        self.alpha = torch.zeros((B, T)).to(inputs.device)
+
+    def forward(self, query, inputs):
+        gbk_t = self.N_a(query)
+        gbk_t = gbk_t.view(gbk_t.size(0), 3, self.K)
+
+        # attention model parameters
+        g_t = gbk_t[:, 0, :]
+        b_t = gbk_t[:, 1, :]
+        k_t = gbk_t[:, 2, :]
+
+        # attention GMM parameters
+        g_t = self.sm(g_t) + self.epsilon
+        sig_t = torch.exp(b_t) + self.epsilon
+        mu_t = self.mu_tm1 + self.attention_alignment * torch.exp(k_t)
+
+        g_t = g_t.unsqueeze(2).expand(g_t.size(0),
+                                      g_t.size(1),
+                                      inputs.size(1))
+        sig_t = sig_t.unsqueeze(2).expand_as(g_t)
+        mu_t_ = mu_t.unsqueeze(2).expand_as(g_t)
+
+        # attention weights
+        phi_t = g_t * torch.exp(-0.5 * sig_t * (mu_t_ - self.J)**2)
+        alpha_t = self.COEF * torch.sum(phi_t, 1)
+
+        c_t = torch.bmm(alpha_t.unsqueeze(1), inputs).transpose(0, 1).squeeze(0)
+        self.alpha, self.mu_tm1 = alpha_t, mu_t
+        return c_t
