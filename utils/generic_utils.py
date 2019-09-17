@@ -301,6 +301,7 @@ def setup_model(num_chars, num_speakers, c):
             postnet_dropout=c.postnet_dropout,
             query_dim=c.query_dim,
             num_gaussians=c.get("num_gaussians", 10),
+            normalize_attention=c.get("normalize_attention", False),
             use_gst=c.use_gst,
             decoder_lstm_reg=c.get("decoder_lstm_reg", "dropout"),
             embedding_size=c.get("embedding_size", 256))
