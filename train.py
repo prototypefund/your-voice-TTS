@@ -130,9 +130,6 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
         current_step = num_iter + args.restore_step + \
             epoch * len(data_loader) + 1
 
-        # setup lr
-        if c.lr_decay:
-            scheduler.step()
         optimizer.zero_grad()
         if optimizer_st:
             optimizer_st.zero_grad()
@@ -186,6 +183,9 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
         grad_norm, _ = check_update(model, c.grad_clip)
         current_lr = scheduler.get_lr()[0] if scheduler is not None else c.lr
         optimizer.step()
+        
+        if c.lr_decay:
+            scheduler.step()
 
         # backpass and check the grad norm for stop loss
         # if c.separate_stopnet:
