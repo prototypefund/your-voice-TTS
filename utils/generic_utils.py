@@ -296,7 +296,7 @@ def setup_model(num_chars, num_speakers, c):
             encoder_dropout=c.encoder_dropout,
             postnet_dropout=c.postnet_dropout,
             query_dim=c.query_dim,
-            transition_style=c.transition_style,
+            num_gaussians=c.get("num_gaussians", 10),
             use_gst=c.use_gst,
             decoder_lstm_reg=c.get("decoder_lstm_reg", "dropout"),
             embedding_size=c.get("embedding_size", 256))

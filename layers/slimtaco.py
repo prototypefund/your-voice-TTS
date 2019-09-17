@@ -141,7 +141,7 @@ class Decoder(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
     def __init__(self, in_features, memory_dim, r,
-                 prenet_type, prenet_dropout, query_dim, transition_style,
+                 prenet_type, prenet_dropout, query_dim, num_gaussians,
                  lstm_reg="dropout"):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
@@ -167,10 +167,7 @@ class Decoder(nn.Module):
         # self.set_forget_bias(self.attention_rnn)
         # self.init_gru(self.attention_rnn)
 
-        # self.attention = SimpleAttention(query_dim=self.query_dim,
-        #                                  context_dim=self.context_dim,
-        #                                  transition_style=transition_style)
-        self.attention = GravesAttention(query_dim)
+        self.attention = GravesAttention(query_dim, num_gaussians=num_gaussians)
         self.decoder_rnn = nn.LSTMCell(self.query_dim + self.context_dim,
                                        self.decoder_rnn_dim, 1)
         # self.decoder_rnn = nn.GRUCell(self.query_dim + self.context_dim,
@@ -319,7 +316,7 @@ class Decoder(nn.Module):
 
         outputs, alignments = [], []
         alignment_mass_on_last_char = 0.0
-        while alignment_mass_on_last_char < 1.0:
+        while alignment_mass_on_last_char < 0.5:
             processed_memory = self.prenet(memory)
             output, alignment = self.decode(processed_memory)
             outputs += [output]
@@ -379,61 +376,6 @@ class Decoder(nn.Module):
         return mel_output, alignment
 
 
-class SimpleAttention(nn.Module):
-    # Pylint gets confused by PyTorch conventions here
-    #pylint: disable=attribute-defined-outside-init
-    def __init__(self, query_dim, context_dim,
-                 transition_style):
-        super(SimpleAttention, self).__init__()
-        self.transition_style = transition_style
-
-        self.ta_u = nn.Sequential(Linear(query_dim + context_dim, 1,
-                                         bias=True, init_gain="sigmoid"),
-                                  nn.Sigmoid())
-        if transition_style == "dynamicsq":
-            self.ta_sq = nn.Sequential(Linear(query_dim + context_dim, 1,
-                                              bias=True, init_gain="sigmoid"),
-                                       nn.Sigmoid())
-        self.alpha = None
-        self.u = None
-        self.sq = None
-
-    def init_states(self, inputs):
-        B = inputs.size(0)
-        T = inputs.size(1)
-        S = inputs.size(2)
-        self.alpha = torch.cat(
-            (torch.ones((B, 1)),
-             torch.zeros((B, T))[:, :-1] + 1e-7), dim=1).to(inputs.device)
-        self.u = (0.5 * torch.ones((B, 1))).to(inputs.device)
-        self.sq = (1.4 * torch.ones((B, 1))).to(inputs.device)
-
-    def forward(self, query, inputs):
-        fwd_shifted_alpha = F.pad(
-            self.alpha[:, :-1].clone().to(inputs.device),
-            [1, 0, 0, 0])
-        # compute transition potentials
-        alpha = ((1 - self.u) * self.alpha
-                 + self.u * fwd_shifted_alpha
-                 + 1e-6) ** self.sq  # (self.sq + 1 - abs(0.5-self.u))
-        # renormalize attention weights
-        self.alpha = alpha / alpha.sum(dim=1, keepdim=True)
-
-        context = torch.bmm(self.alpha.unsqueeze(1), inputs)
-        context = context.squeeze(1)
-
-        # compute transition
-        ta_input = torch.cat((context, query.squeeze(1)), dim=-1)
-
-        self.u = self.ta_u(ta_input)
-        if self.transition_style == "dynamicsq":
-            self.sq = self.ta_sq(ta_input) + 1.0
-        else:
-            raise ValueError(f"Transition style ${self.transition_style} unknown")
-
-        return context
-
-
 def getLinear(dim_in, dim_out):
     return nn.Sequential(Linear(dim_in, dim_in//10, init_gain="relu"),
                          nn.ReLU(),
@@ -443,14 +385,14 @@ def getLinear(dim_in, dim_out):
 class GravesAttention(nn.Module):
     COEF = 0.3989422917366028  # numpy.sqrt(1/(2*numpy.pi))
 
-    def __init__(self, mem_elem, K=10, attention_alignment=0.05):
+    def __init__(self, mem_elem, num_gaussians=10, attention_alignment=0.05):
         super(GravesAttention, self).__init__()
-        self.K = K
+        self.num_gaussians = num_gaussians
         self.attention_alignment = attention_alignment
         self.epsilon = 1e-5
 
         self.sm = nn.Softmax(dim=-1)
-        self.N_a = getLinear(mem_elem, 3*K)
+        self.N_a = getLinear(mem_elem, 3 * num_gaussians)
         self.J = None
         self.mu_tm1 = None
         self.alpha = None
@@ -460,15 +402,15 @@ class GravesAttention(nn.Module):
         T = inputs.size(1)
         self.J = Variable(torch.arange(0, T)
                           .expand_as(torch.Tensor(B,
-                                                  self.K,
+                                                  self.num_gaussians,
                                                   T)),
                           requires_grad=False).type(torch.FloatTensor).to(inputs.device)
-        self.mu_tm1 = torch.zeros((B, self.K)).to(inputs.device)
+        self.mu_tm1 = torch.zeros((B, self.num_gaussians)).to(inputs.device)
         self.alpha = torch.zeros((B, T)).to(inputs.device)
 
     def forward(self, query, inputs):
         gbk_t = self.N_a(query)
-        gbk_t = gbk_t.view(gbk_t.size(0), 3, self.K)
+        gbk_t = gbk_t.view(gbk_t.size(0), 3, self.num_gaussians)
 
         # attention model parameters
         g_t = gbk_t[:, 0, :]
