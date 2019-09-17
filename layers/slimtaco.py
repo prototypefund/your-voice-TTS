@@ -142,6 +142,7 @@ class Decoder(nn.Module):
     #pylint: disable=attribute-defined-outside-init
     def __init__(self, in_features, memory_dim, r,
                  prenet_type, prenet_dropout, query_dim, num_gaussians,
+                 normalize_attention,
                  lstm_reg="dropout"):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
@@ -167,7 +168,8 @@ class Decoder(nn.Module):
         # self.set_forget_bias(self.attention_rnn)
         # self.init_gru(self.attention_rnn)
 
-        self.attention = GravesAttention(query_dim, num_gaussians=num_gaussians)
+        self.attention = GravesAttention(query_dim, num_gaussians=num_gaussians,
+                                         normalize_attention=normalize_attention)
         self.decoder_rnn = nn.LSTMCell(self.query_dim + self.context_dim,
                                        self.decoder_rnn_dim, 1)
         # self.decoder_rnn = nn.GRUCell(self.query_dim + self.context_dim,
@@ -385,10 +387,12 @@ def getLinear(dim_in, dim_out):
 class GravesAttention(nn.Module):
     COEF = 0.3989422917366028  # numpy.sqrt(1/(2*numpy.pi))
 
-    def __init__(self, mem_elem, num_gaussians=10, attention_alignment=0.05):
+    def __init__(self, mem_elem, num_gaussians=10, attention_alignment=0.05,
+                 normalize_attention=False):
         super(GravesAttention, self).__init__()
         self.num_gaussians = num_gaussians
         self.attention_alignment = attention_alignment
+        self.normalize_attention = normalize_attention
         self.epsilon = 1e-5
 
         self.sm = nn.Softmax(dim=-1)
@@ -431,6 +435,8 @@ class GravesAttention(nn.Module):
         # attention weights
         phi_t = g_t * torch.exp(-0.5 * sig_t * (mu_t_ - self.J)**2)
         alpha_t = self.COEF * torch.sum(phi_t, 1)
+        if self.normalize_attention:
+            alpha_t = alpha_t / alpha_t.sum(dim=1, keepdim=True)
 
         c_t = torch.bmm(alpha_t.unsqueeze(1), inputs).transpose(0, 1).squeeze(0)
         self.alpha, self.mu_tm1 = alpha_t, mu_t

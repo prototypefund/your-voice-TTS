@@ -15,10 +15,10 @@ from distribute import (DistributedSampler, apply_gradient_allreduce,
                         init_distributed, reduce_tensor)
 from layers.losses import L1LossMasked, MSELossMasked
 from utils.audio import AudioProcessor
-from utils.generic_utils import (NoamLR, check_update, count_parameters,
+from utils.generic_utils import (check_update, count_parameters,
                                  create_experiment_folder, get_git_branch,
                                  load_config, remove_experiment_folder,
-                                 save_best_model, save_checkpoint, weight_decay,
+                                 save_best_model, save_checkpoint,
                                  set_init_dict, copy_config_file, setup_model,
                                  split_dataset, CosineAnnealingLR)
 from utils.logger import Logger
@@ -184,6 +184,7 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
 
         loss.backward()
         grad_norm, _ = check_update(model, c.grad_clip)
+        current_lr = scheduler.get_lr()[0] if scheduler is not None else c.lr
         optimizer.step()
 
         # backpass and check the grad norm for stop loss
@@ -622,9 +623,9 @@ def main(args): #pylint: disable=redefined-outer-name
     #     optimizer_st = None
 
     if c.loss_masking:
-        criterion = L1LossMasked() if c.loss_type == "L1" else MSELossMasked()
+        criterion = L1LossMasked() if c.loss_type.lower() == "l1" else MSELossMasked()
     else:
-        criterion = nn.L1Loss() if c.loss_type == "L1" else nn.MSELoss()
+        criterion = nn.L1Loss() if c.loss_type.lower() == "l1" else nn.MSELoss()
     criterion_alignment = nn.L1Loss()
 
     if args.restore_path:
