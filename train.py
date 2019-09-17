@@ -20,7 +20,7 @@ from utils.generic_utils import (NoamLR, check_update, count_parameters,
                                  load_config, remove_experiment_folder,
                                  save_best_model, save_checkpoint, weight_decay,
                                  set_init_dict, copy_config_file, setup_model,
-                                 split_dataset)
+                                 split_dataset, CosineAnnealingLR)
 from utils.logger import Logger
 from utils.speakers import load_speaker_mapping, save_speaker_mapping, \
     get_speakers
@@ -183,7 +183,6 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
         #     loss += c.stop_loss_adjustment * stop_loss
 
         loss.backward()
-        optimizer, current_lr = weight_decay(optimizer, c.wd)
         grad_norm, _ = check_update(model, c.grad_clip)
         optimizer.step()
 
@@ -614,7 +613,8 @@ def main(args): #pylint: disable=redefined-outer-name
 
     print(" | > Num output units : {}".format(ap.num_freq), flush=True)
 
-    optimizer = RAdam(model.parameters(), lr=c.lr, weight_decay=0)
+    optimizer = RAdam(model.parameters(), lr=c.lr,
+                      weight_decay=c.wd, eps=1e-6)
     # if c.stopnet and c.separate_stopnet:
     #     optimizer_st = optim.Adam(
     #         model.decoder.stopnet.parameters(), lr=c.lr, weight_decay=0)
@@ -653,23 +653,18 @@ def main(args): #pylint: disable=redefined-outer-name
     if use_cuda:
         model = model.cuda()
         criterion_alignment.cuda()
-        if c.get("combine_loss", False):
-            l1.cuda()
-            l2.cuda()
-        else:
-            criterion.cuda()
+        criterion.cuda()
 
-        # if criterion_st:
-        #     criterion_st.cuda()
 
     # DISTRUBUTED
     if num_gpus > 1:
         model = apply_gradient_allreduce(model)
 
     if c.lr_decay:
-        scheduler = NoamLR(
+        scheduler = CosineAnnealingLR(
             optimizer,
-            warmup_steps=c.warmup_steps,
+            T_max=200,
+            eta_min=1e-5,
             last_epoch=args.restore_step - 1)
     else:
         scheduler = None
