@@ -622,15 +622,10 @@ def main(args): #pylint: disable=redefined-outer-name
     #     optimizer_st = None
 
     if c.loss_masking:
-        criterion = L1LossMasked() if c.model == "Tacotron" else MSELossMasked()
+        criterion = L1LossMasked() if c.loss_type == "L1" else MSELossMasked()
     else:
-        criterion = nn.L1Loss() if c.model == "Tacotron" else nn.MSELoss()
+        criterion = nn.L1Loss() if c.loss_type == "L1" else nn.MSELoss()
     criterion_alignment = nn.L1Loss()
-
-    if c.get("combine_loss", False):
-        l1 = nn.L1Loss()
-        l2 = nn.MSELoss()
-        criterion = lambda pred, target: l1(pred, target) + l2(pred, target)
 
     if args.restore_path:
         checkpoint = torch.load(args.restore_path)
