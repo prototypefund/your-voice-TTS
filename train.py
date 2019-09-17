@@ -307,7 +307,7 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
 
 
 def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
-             data_loader, mode="easy"):
+             data_loader):
     if c.use_speaker_embedding:
         speaker_mapping = load_speaker_mapping(OUT_PATH)
     model.eval()
@@ -316,7 +316,7 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
     avg_decoder_loss = 0
     avg_alignment_loss = 0
     teacher_keep_rate = c.get("teacher_keep_rate", 1.0)
-    print(f"\n > Validation: {mode}")
+    print(f"\n > Validation: ")
     with torch.no_grad():
         if data_loader is not None:
             for num_iter, data in enumerate(data_loader):
@@ -424,9 +424,9 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
                 const_spec = const_spec[:spec_len]
 
                 eval_figures = {
-                    f"prediction ({mode})": plot_spectrogram(const_spec, ap),
-                    f"ground_truth ({mode})": plot_spectrogram(gt_spec, ap),
-                    f"alignment ({mode})": plot_alignment(align_img,
+                    f"prediction": plot_spectrogram(const_spec, ap),
+                    f"ground_truth": plot_spectrogram(gt_spec, ap),
+                    f"alignment": plot_alignment(align_img,
                                                 text_padding_start=text_len,
                                                 spec_padding_start=spec_len // c.r)
                 }
@@ -445,15 +445,15 @@ def evaluate(model, criterion, criterion_alignment, ap, current_step, epoch,
                 avg_alignment_loss /= (num_iter + 1)
 
                 # Plot Validation Stats
-                epoch_stats = {f"loss_postnet ({mode})": avg_postnet_loss,
-                               f"loss_decoder ({mode})": avg_decoder_loss,
-                               f"alignment_loss ({mode})": avg_alignment_loss}
+                epoch_stats = {f"loss_postnet": avg_postnet_loss,
+                               f"loss_decoder": avg_decoder_loss,
+                               f"alignment_loss": avg_alignment_loss}
                 tb_logger.tb_eval_stats(current_step, epoch_stats)
 
     return avg_postnet_loss
 
 
-def test(model, criterion, criterion_alignment, ap, current_step, epoch):
+def test(model, ap, current_step, epoch):
     model.eval()
     if c.test_sentences_file is None:
         test_sentences = [
@@ -705,9 +705,9 @@ def main(args): #pylint: disable=redefined-outer-name
         #     flush=True)
         print(
             " | > Training Loss: {:.5f}   "
-            "Validation Loss: (easy) {:.5f}".format(train_loss, val_loss),
+            "Validation Loss: {:.5f}".format(train_loss, val_loss),
             flush=True)
-        test(model, criterion, criterion_alignment, ap, current_step, epoch)
+        test(model, ap, current_step, epoch)
         target_loss = train_loss
         if c.run_eval:
             target_loss = val_loss
