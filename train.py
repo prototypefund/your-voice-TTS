@@ -183,9 +183,6 @@ def train(model, criterion, criterion_alignment, optimizer, optimizer_st, schedu
         grad_norm, _ = check_update(model, c.grad_clip)
         current_lr = scheduler.get_lr()[0] if scheduler is not None else c.lr
         optimizer.step()
-        
-        if c.lr_decay:
-            scheduler.step()
 
         # backpass and check the grad norm for stop loss
         # if c.separate_stopnet:
@@ -665,8 +662,7 @@ def main(args): #pylint: disable=redefined-outer-name
         scheduler = CosineAnnealingLR(
             optimizer,
             T_max=200,
-            eta_min=1e-5,
-            last_epoch=args.restore_step - 1)
+            eta_min=1e-5)
     else:
         scheduler = None
 
@@ -706,6 +702,8 @@ def main(args): #pylint: disable=redefined-outer-name
                                     OUT_PATH, current_step, epoch)
         train_dataset.verbose = False
         train_dataset.make_index()
+        if c.lr_decay:
+            scheduler.step()
 
 
 if __name__ == '__main__':
