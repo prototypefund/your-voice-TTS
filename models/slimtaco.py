@@ -35,9 +35,7 @@ class SlimTaco(nn.Module):
         self.style_dim = 128
         self.speaker_dim = 64
 
-        self.embedding = nn.Embedding(num_chars, self.embedding_size)
-        # make padding char zero
-        self.embedding.weight.data[0].fill_(0.0)
+        self.embedding = nn.Embedding(num_chars, self.embedding_size, padding_idx=0)
         if num_speakers > 1:
             self.speaker_embedding = nn.Embedding(num_speakers,
                                                   self.speaker_dim)
