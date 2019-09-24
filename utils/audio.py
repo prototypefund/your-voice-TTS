@@ -212,7 +212,7 @@ class AudioProcessor(object):
         # margin = int(self.sample_rate * 0.1)
         # wav = wav[margin:-margin]
         return librosa.effects.trim(
-            wav, top_db=40, frame_length=2048, hop_length=128)[0]
+            wav, top_db=40, frame_length=1024, hop_length=256)[0]
 
     @staticmethod
     def mulaw_encode(wav, qc):
