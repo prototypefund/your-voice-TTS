@@ -96,7 +96,7 @@ def mailabs(root_path, meta_files=None):
                 else:
                     wav_file = os.path.join(root_path, folder.replace("metadata.csv", ""), 'wavs', cols[0] + '.wav')
                 if os.path.isfile(wav_file):
-                    text = cols[1].strip()
+                    text = cols[2].strip()
                     items.append([text, wav_file, speaker_name])
                 else:
                     raise RuntimeError("> File %s is not exist!"%(wav_file))
