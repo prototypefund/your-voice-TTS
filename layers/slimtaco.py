@@ -500,7 +500,6 @@ class SimpleGaussianAttention(nn.Module):
         self.normalize_attention = normalize_attention
         self.epsilon = 1e-5
 
-        self.sm = nn.Softmax(dim=-1)
         self.N_a = getLinear(mem_elem, 2)
         self.J = None
         self.mu_tm1 = None
