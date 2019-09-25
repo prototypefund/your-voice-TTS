@@ -21,6 +21,7 @@ class SlimTaco(nn.Module):
                  encoder_dropout=0.25,
                  postnet_dropout=0.25,
                  query_dim=512,
+                 attention_type="simple",
                  num_gaussians=10,
                  normalize_attention=False,
                  use_gst=False,
@@ -52,7 +53,7 @@ class SlimTaco(nn.Module):
             #                              scoring_function_name="tanh",
             #                              use_separate_keys=True)
         self.decoder = Decoder(self.embedding_size, self.n_mel_channels, r,
-                               prenet_type, prenet_dropout, query_dim,
+                               prenet_type, prenet_dropout, query_dim, attention_type,
                                num_gaussians, normalize_attention, decoder_lstm_reg)
         self.postnet = Postnet(self.n_mel_channels, dropout=postnet_dropout)
 

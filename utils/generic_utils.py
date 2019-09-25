@@ -300,6 +300,7 @@ def setup_model(num_chars, num_speakers, c):
             encoder_dropout=c.encoder_dropout,
             postnet_dropout=c.postnet_dropout,
             query_dim=c.query_dim,
+            attention_type=c.attention_type,
             num_gaussians=c.get("num_gaussians", 10),
             normalize_attention=c.get("normalize_attention", False),
             use_gst=c.use_gst,

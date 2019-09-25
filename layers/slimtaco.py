@@ -141,8 +141,8 @@ class Decoder(nn.Module):
     # Pylint gets confused by PyTorch conventions here
     #pylint: disable=attribute-defined-outside-init
     def __init__(self, in_features, memory_dim, r,
-                 prenet_type, prenet_dropout, query_dim, num_gaussians,
-                 normalize_attention,
+                 prenet_type, prenet_dropout, query_dim, attention_type,
+                 num_gaussians, normalize_attention,
                  lstm_reg="dropout"):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
@@ -167,9 +167,13 @@ class Decoder(nn.Module):
         #                                 self.query_dim)
         # self.set_forget_bias(self.attention_rnn)
         # self.init_gru(self.attention_rnn)
-
-        self.attention = GravesAttention(query_dim, num_gaussians=num_gaussians,
-                                         normalize_attention=normalize_attention)
+        if attention_type == "simple":
+            self.attention = SimpleAttention(query_dim, self.context_dim)
+        elif attention_type == "graves":
+            self.attention = GravesAttention(query_dim, num_gaussians=num_gaussians,
+                                             normalize_attention=normalize_attention)
+        elif attention_type == "simplegauss":
+            self.attention = SimpleGaussianAttention(query_dim, normalize_attention)
         self.decoder_rnn = nn.LSTMCell(self.query_dim + self.context_dim,
                                        self.decoder_rnn_dim, 1)
         # self.decoder_rnn = nn.GRUCell(self.query_dim + self.context_dim,
@@ -378,6 +382,51 @@ class Decoder(nn.Module):
         return mel_output, alignment
 
 
+class SimpleAttention(nn.Module):
+    # Pylint gets confused by PyTorch conventions here
+    #pylint: disable=attribute-defined-outside-init
+    def __init__(self, query_dim, context_dim):
+        super(SimpleAttention, self).__init__()
+        self.ta = nn.Sequential(Linear(query_dim + context_dim, 2,
+                                         bias=True, init_gain="sigmoid"),
+                                  nn.Sigmoid())
+        self.alpha = None
+        self.u = None
+        self.sq = None
+
+    def init_states(self, inputs):
+        B = inputs.size(0)
+        T = inputs.size(1)
+        S = inputs.size(2)
+        self.alpha = torch.cat(
+            (torch.ones((B, 1)),
+             torch.zeros((B, T))[:, :-1] + 1e-7), dim=1).to(inputs.device)
+        self.u = (0.5 * torch.ones((B, 1))).to(inputs.device)
+        self.sq = (1.4 * torch.ones((B, 1))).to(inputs.device)
+
+    def forward(self, query, inputs):
+        fwd_shifted_alpha = F.pad(
+            self.alpha[:, :-1].clone().to(inputs.device),
+            [1, 0, 0, 0])
+        # compute transition potentials
+        alpha = ((1 - self.u) * self.alpha
+                 + self.u * fwd_shifted_alpha
+                 + 1e-6) ** self.sq  # (self.sq + 1 - abs(0.5-self.u))
+        # renormalize attention weights
+        self.alpha = alpha / alpha.sum(dim=1, keepdim=True)
+
+        context = torch.bmm(self.alpha.unsqueeze(1), inputs)
+        context = context.squeeze(1)
+
+        # compute transition
+        ta_input = torch.cat((context, query.squeeze(1)), dim=-1)
+        ta_output = self.ta(ta_input)
+        self.u = ta_output[:, 0]
+        self.sq = ta_output[:, 1] + 1.0
+
+        return context
+
+
 def getLinear(dim_in, dim_out):
     return nn.Sequential(Linear(dim_in, dim_in//10, init_gain="relu"),
                          nn.ReLU(),
@@ -434,6 +483,54 @@ class GravesAttention(nn.Module):
 
         # attention weights
         phi_t = g_t * torch.exp(-0.5 * sig_t * (mu_t_ - self.J)**2)
+        alpha_t = self.COEF * torch.sum(phi_t, 1)
+        if self.normalize_attention:
+            alpha_t = alpha_t / alpha_t.sum(dim=1, keepdim=True)
+
+        c_t = torch.bmm(alpha_t.unsqueeze(1), inputs).transpose(0, 1).squeeze(0)
+        self.alpha, self.mu_tm1 = alpha_t, mu_t
+        return c_t
+
+
+class SimpleGaussianAttention(nn.Module):
+    COEF = 0.3989422917366028  # numpy.sqrt(1/(2*numpy.pi))
+
+    def __init__(self, mem_elem, normalize_attention=True):
+        super(SimpleGaussianAttention, self).__init__()
+        self.normalize_attention = normalize_attention
+        self.epsilon = 1e-5
+
+        self.sm = nn.Softmax(dim=-1)
+        self.N_a = getLinear(mem_elem, 2)
+        self.J = None
+        self.mu_tm1 = None
+        self.alpha = None
+
+    def init_states(self, inputs):
+        B = inputs.size(0)
+        T = inputs.size(1)
+        self.J = Variable(torch.arange(0, T).expand_as(torch.Tensor(B, T)),
+                          requires_grad=False).type(torch.FloatTensor).to(inputs.device)
+        self.mu_tm1 = torch.zeros((B, self.num_gaussians)).to(inputs.device)
+        self.alpha = torch.zeros((B, T)).to(inputs.device)
+
+    def forward(self, query, inputs):
+        gbk_t = self.N_a(query)
+
+        # attention model parameters
+        b_t = gbk_t[:, 0]
+        k_t = gbk_t[:, 1]
+
+        # attention GMM parameters
+        sig_t = torch.sigmoid(b_t) + self.epsilon
+        mu_t = self.mu_tm1 + torch.sigmoid(k_t)
+
+        sig_t = sig_t.unsqueeze(1).expand(sig_t.size(0),
+                                          inputs.size(1))
+        mu_t_ = mu_t.unsqueeze(1).expand_as(sig_t)
+
+        # attention weights
+        phi_t = torch.exp(-0.5 * sig_t * (mu_t_ - self.J)**2)
         alpha_t = self.COEF * torch.sum(phi_t, 1)
         if self.normalize_attention:
             alpha_t = alpha_t / alpha_t.sum(dim=1, keepdim=True)
