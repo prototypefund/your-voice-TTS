@@ -519,7 +519,7 @@ class SimpleGaussianAttention(nn.Module):
 
         # attention model parameters
         b_t = gbk_t[:, 0]
-        k_t = gbk_t[:, 1]
+        k_t = gbk_t[:, 1].unsqueeze(1)
 
         # attention GMM parameters
         sig_t = torch.sigmoid(b_t) + self.epsilon
