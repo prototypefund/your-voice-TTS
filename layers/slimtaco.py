@@ -527,7 +527,7 @@ class SimpleGaussianAttention(nn.Module):
 
         sig_t = sig_t.unsqueeze(1).expand(sig_t.size(0),
                                           inputs.size(1))
-        mu_t_ = mu_t.unsqueeze(1).expand_as(sig_t)
+        mu_t_ = mu_t.expand_as(sig_t)
 
         # attention weights
         phi_t = torch.exp(-0.5 * sig_t * (mu_t_ - self.J)**2)
