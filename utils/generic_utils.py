@@ -305,7 +305,8 @@ def setup_model(num_chars, num_speakers, c):
             normalize_attention=c.get("normalize_attention", False),
             use_gst=c.use_gst,
             decoder_lstm_reg=c.get("decoder_lstm_reg", "dropout"),
-            embedding_size=c.get("embedding_size", 256))
+            embedding_size=c.get("embedding_size", 256),
+            final_activation=c.get("final_activation"))
     elif c.model.lower() == "parataco":
         model = MyModel(
             num_chars=num_chars,

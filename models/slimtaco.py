@@ -6,6 +6,7 @@ from layers.slim_gst_layers import GST
 from layers.slimtaco import Encoder, Decoder, Postnet
 from layers.style_encoder import GlobalStyleTokens
 from utils.generic_utils import sequence_mask
+import torch.nn.functional as F
 
 
 # TODO: match function arguments with tacotron
@@ -27,7 +28,8 @@ class SlimTaco(nn.Module):
                  use_gst=False,
                  init_embedding=True,
                  decoder_lstm_reg="dropout",
-                 embedding_size=256):
+                 embedding_size=256,
+                 final_activation=None):
         super(SlimTaco, self).__init__()
         self.n_mel_channels = mel_dim
         self.n_frames_per_step = r
@@ -35,6 +37,7 @@ class SlimTaco(nn.Module):
         self.embedding_size = embedding_size
         self.style_dim = 128
         self.speaker_dim = 64
+        self.final_activation = final_activation
 
         self.embedding = nn.Embedding(num_chars, self.embedding_size, padding_idx=0)
         if num_speakers > 1:
@@ -89,7 +92,10 @@ class SlimTaco(nn.Module):
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
         mel_outputs, mel_outputs_postnet, alignments = self.shape_outputs(
             mel_outputs, mel_outputs_postnet, alignments)
-        return mel_outputs, mel_outputs_postnet, alignments
+        if self.final_activation is None:
+            return mel_outputs, mel_outputs_postnet, alignments
+        else:
+            return F.relu(mel_outputs), F.relu(mel_outputs_postnet), alignments
 
     def inference(self, text, mel_specs=None, speaker_ids=None):
         embedded_inputs = self.embedding(text).transpose(1, 2)
