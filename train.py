@@ -611,8 +611,12 @@ def main(args): #pylint: disable=redefined-outer-name
 
     print(" | > Num output units : {}".format(ap.num_freq), flush=True)
 
-    optimizer = RAdam(model.parameters(), lr=c.lr,
-                      weight_decay=c.wd, eps=1e-6)
+    if c.get("optimizer", "radam") == "radam":
+        optimizer = RAdam(model.parameters(), lr=c.lr,
+                          weight_decay=c.wd, eps=1e-6)
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), lr=c.lr,
+                                     weight_decay=c.wd)
     # if c.stopnet and c.separate_stopnet:
     #     optimizer_st = optim.Adam(
     #         model.decoder.stopnet.parameters(), lr=c.lr, weight_decay=0)
