@@ -521,7 +521,7 @@ class SimpleGaussianAttention(nn.Module):
         k_t = gbk_t[:, 1].unsqueeze(1)
 
         # attention GMM parameters
-        sig_t = torch.sigmoid(b_t) + self.epsilon
+        sig_t = torch.sigmoid(b_t) * 0.5 + 0.5
         mu_t = self.mu_tm1 + torch.sigmoid(k_t)
 
         sig_t = sig_t.unsqueeze(1).expand(sig_t.size(0),
