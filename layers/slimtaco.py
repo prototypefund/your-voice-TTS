@@ -421,8 +421,8 @@ class SimpleAttention(nn.Module):
         # compute transition
         ta_input = torch.cat((context, query.squeeze(1)), dim=-1)
         ta_output = self.ta(ta_input)
-        self.u = ta_output[:, 0]
-        self.sq = ta_output[:, 1] + 1.0
+        self.u = ta_output[:, 0].unsqueeze(1)
+        self.sq = ta_output[:, 1].unsqueeze(1) + 1.0
 
         return context
 
@@ -511,7 +511,7 @@ class SimpleGaussianAttention(nn.Module):
         T = inputs.size(1)
         self.J = Variable(torch.arange(0, T).expand_as(torch.Tensor(B, T)),
                           requires_grad=False).type(torch.FloatTensor).to(inputs.device)
-        self.mu_tm1 = torch.zeros((B, self.num_gaussians)).to(inputs.device)
+        self.mu_tm1 = torch.zeros((B, 1)).to(inputs.device)
         self.alpha = torch.zeros((B, T)).to(inputs.device)
 
     def forward(self, query, inputs):
