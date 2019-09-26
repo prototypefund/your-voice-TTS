@@ -197,7 +197,7 @@ class MyDataset(Dataset):
             speaker_name = [batch[idx]['speaker_name']
                             for idx in ids_sorted_decreasing]
 
-            mel_lengths = [m.shape[1] + 1 for m in mel]  # +1 for zero-frame
+            mel_lengths = [m.shape[1] for m in mel]  # +1 for zero-frame
 
             # compute 'stop token' targets
             stop_targets = [
