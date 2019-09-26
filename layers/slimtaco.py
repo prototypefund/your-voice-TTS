@@ -530,7 +530,7 @@ class SimpleGaussianAttention(nn.Module):
 
         # attention weights
         phi_t = torch.exp(-0.5 * sig_t * (mu_t_ - self.J)**2)
-        alpha_t = self.COEF * phi_t + 1e-8
+        alpha_t = self.COEF * phi_t + 1e-5
         if self.normalize_attention:
             alpha_t = alpha_t / alpha_t.sum(dim=1, keepdim=True)
 
