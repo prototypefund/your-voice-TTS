@@ -400,7 +400,7 @@ class SimpleAttention(nn.Module):
         S = inputs.size(2)
         self.alpha = torch.cat(
             (torch.ones((B, 1)),
-             torch.zeros((B, T))[:, :-1] + 1e-7), dim=1).to(inputs.device)
+             torch.zeros((B, T))[:, :-1] + 1e-3), dim=1).to(inputs.device)
         self.u = (0.5 * torch.ones((B, 1))).to(inputs.device)
         self.sq = (1.4 * torch.ones((B, 1))).to(inputs.device)
 
@@ -411,7 +411,7 @@ class SimpleAttention(nn.Module):
         # compute transition potentials
         alpha = ((1 - self.u) * self.alpha
                  + self.u * fwd_shifted_alpha
-                 + 1e-6) ** self.sq  # (self.sq + 1 - abs(0.5-self.u))
+                 + 1e-3) ** self.sq  # (self.sq + 1 - abs(0.5-self.u))
         # renormalize attention weights
         self.alpha = alpha / alpha.sum(dim=1, keepdim=True)
 
