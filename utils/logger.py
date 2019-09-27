@@ -113,8 +113,11 @@ class Logger(object):
                 param.std(), step)
             self.writer.add_histogram(
                 f"{name}/param", param, step)
-            self.writer.add_histogram(
-                f"{name}/grad", param.grad, step)
+            try:
+                self.writer.add_histogram(
+                    f"{name}/grad", param.grad, step)
+            except NotImplementedError:
+                pass
             self.writer.add_histogram(
                 f"{name}/param-movement",
                 param - self.parameter_reference[name],
