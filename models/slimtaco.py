@@ -28,7 +28,9 @@ class SlimTaco(nn.Module):
                  init_embedding=True,
                  decoder_lstm_reg="dropout",
                  embedding_size=256,
-                 final_activation=None):
+                 final_activation=None,
+                 max_norm=1.0,
+                 symmetric=False):
         super(SlimTaco, self).__init__()
         self.n_mel_channels = mel_dim
         self.n_frames_per_step = r
@@ -37,6 +39,8 @@ class SlimTaco(nn.Module):
         self.embedding_size = embedding_size if not use_gst else embedding_size + self.style_dim
         self.speaker_dim = 64
         self.final_activation = final_activation
+        self.max_norm = max_norm
+        self.symmetric = symmetric
 
         self.embedding = nn.Embedding(num_chars, self.embedding_size, padding_idx=0)
         if num_speakers > 1:
@@ -86,10 +90,9 @@ class SlimTaco(nn.Module):
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
         mel_outputs, mel_outputs_postnet, alignments = self.shape_outputs(
             mel_outputs, mel_outputs_postnet, alignments)
-        if self.final_activation is None:
-            return mel_outputs, mel_outputs_postnet, alignments
-        else:
-            return F.relu(mel_outputs), F.relu(mel_outputs_postnet), alignments
+        mel_outputs, mel_outputs_postnet = self._scale_final_activation(
+            mel_outputs, mel_outputs_postnet)
+        return mel_outputs, mel_outputs_postnet, alignments
 
     def inference(self, text, mel_specs=None, speaker_ids=None):
         embedded_inputs = self.embedding(text).transpose(1, 2)
@@ -108,6 +111,8 @@ class SlimTaco(nn.Module):
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
         mel_outputs, mel_outputs_postnet, alignments = self.shape_outputs(
             mel_outputs, mel_outputs_postnet, alignments)
+        mel_outputs, mel_outputs_postnet = self._scale_final_activation(
+            mel_outputs, mel_outputs_postnet)
         return mel_outputs, mel_outputs_postnet, alignments
 
     def inference_truncated(self, text, mel_specs=None, speaker_ids=None):
@@ -125,6 +130,8 @@ class SlimTaco(nn.Module):
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
         mel_outputs, mel_outputs_postnet, alignments = self.shape_outputs(
             mel_outputs, mel_outputs_postnet, alignments)
+        mel_outputs, mel_outputs_postnet = self._scale_final_activation(
+            mel_outputs, mel_outputs_postnet)
         return mel_outputs, mel_outputs_postnet, alignments
 
     def _add_speaker_embedding(self, encoder_outputs, speaker_ids):
@@ -152,3 +159,12 @@ class SlimTaco(nn.Module):
                                            self.style_dim))
             encoder_outputs = torch.cat((encoder_outputs, gst_outputs), dim=-1)
         return encoder_outputs
+
+    def _scale_final_activation(self, mel_outputs, mel_outputs_postnet):
+        if self.final_activation is not None:
+            mel_outputs = torch.sigmoid(mel_outputs) * self.max_norm
+            mel_outputs_postnet = torch.sigmoid(mel_outputs_postnet) * self.max_norm
+            if self.symmetric:
+                mel_outputs = mel_outputs * 2 - self.max_norm
+                mel_outputs_postnet = mel_outputs_postnet * 2 - self.max_norm
+        return mel_outputs, mel_outputs_postnet
