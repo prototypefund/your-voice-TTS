@@ -4,7 +4,6 @@ import torch
 
 from layers.slim_gst_layers import GST
 from layers.slimtaco import Encoder, Decoder, Postnet
-from layers.style_encoder import GlobalStyleTokens
 from utils.generic_utils import sequence_mask
 import torch.nn.functional as F
 
@@ -34,8 +33,8 @@ class SlimTaco(nn.Module):
         self.n_mel_channels = mel_dim
         self.n_frames_per_step = r
         self.use_gst = use_gst
-        self.embedding_size = embedding_size
         self.style_dim = 128
+        self.embedding_size = embedding_size if not use_gst else embedding_size + self.style_dim
         self.speaker_dim = 64
         self.final_activation = final_activation
 
@@ -79,12 +78,7 @@ class SlimTaco(nn.Module):
         else:
             speaker_embedding = None
 
-        if self.use_gst and mel_specs is not None:
-            gst_outputs = self.gst(mel_specs).squeeze(1)
-            # gst_outputs = gst_outputs.expand(-1, encoder_outputs.size(1), -1)
-            # encoder_outputs = encoder_outputs + gst_outputs
-        else:
-            gst_outputs = None
+        self._add_style_embedding(encoder_outputs, mel_specs)
 
         mel_outputs, alignments = self.decoder(
             encoder_outputs, mel_specs, mask, teacher_keep_rate)
@@ -107,12 +101,7 @@ class SlimTaco(nn.Module):
         else:
             speaker_embedding = None
 
-        if self.use_gst and mel_specs is not None:
-            gst_outputs = self.gst(mel_specs).squeeze(1)
-            # gst_outputs = gst_outputs.expand(-1, encoder_outputs.size(1), -1)
-            # encoder_outputs = encoder_outputs + gst_outputs
-        else:
-            gst_outputs = None
+        self._add_style_embedding(encoder_outputs, mel_specs)
 
         mel_outputs, alignments = self.decoder.inference(encoder_outputs)
         mel_outputs_postnet = self.postnet(mel_outputs)
@@ -128,15 +117,10 @@ class SlimTaco(nn.Module):
         encoder_outputs = self.encoder.inference_truncated(embedded_inputs)
         encoder_outputs = self._add_speaker_embedding(encoder_outputs,
                                                       speaker_ids)
-        if self.use_gst and mel_specs is not None:
-            gst_outputs = self.gst(mel_specs).squeeze(1)
-            # gst_outputs = gst_outputs.expand(-1, encoder_outputs.size(1), -1)
-            # encoder_outputs = encoder_outputs + gst_outputs
-        else:
-            gst_outputs = None
+        self._add_style_embedding(encoder_outputs, mel_specs)
 
         mel_outputs, alignments = self.decoder.inference_truncated(
-            encoder_outputs, gst_outputs)
+            encoder_outputs)
         mel_outputs_postnet = self.postnet(mel_outputs)
         mel_outputs_postnet = mel_outputs + mel_outputs_postnet
         mel_outputs, mel_outputs_postnet, alignments = self.shape_outputs(
@@ -154,4 +138,17 @@ class SlimTaco(nn.Module):
                                                            encoder_outputs.size(1),
                                                            -1)
             encoder_outputs = encoder_outputs + speaker_embeddings
+        return encoder_outputs
+
+    def _add_style_embedding(self, encoder_outputs, mel_specs):
+        if self.use_gst:
+            if mel_specs is not None:
+                gst_outputs = self.gst(mel_specs).squeeze(1)
+                gst_outputs = gst_outputs.expand(-1, encoder_outputs.size(1),
+                                                 -1)
+            else:
+                gst_outputs = torch.zeros((encoder_outputs.size(0),
+                                           encoder_outputs.size(1),
+                                           self.style_dim))
+            encoder_outputs = torch.cat((encoder_outputs, gst_outputs), dim=-1)
         return encoder_outputs

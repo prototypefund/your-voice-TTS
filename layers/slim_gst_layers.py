@@ -11,14 +11,15 @@ class GST(nn.Module):
     def __init__(self, num_mel, num_heads, num_style_tokens, embedding_dim):
         super().__init__()
         self.encoder = ReferenceEncoder(num_mel, embedding_dim)
-        self.style_token_layer = StyleTokenLayer(num_heads, num_style_tokens,
-                                                 embedding_dim)
+        # self.style_token_layer = StyleTokenLayer(num_heads, num_style_tokens,
+        #                                          embedding_dim)
 
     def forward(self, inputs):
         enc_out = self.encoder(inputs)
-        style_embed = self.style_token_layer(enc_out)
+        # style_embed = self.style_token_layer(enc_out)
 
-        return style_embed
+        # return style_embed
+        return enc_out
 
 
 class ReferenceEncoder(nn.Module):
