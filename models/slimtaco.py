@@ -150,7 +150,7 @@ class SlimTaco(nn.Module):
     def _add_style_embedding(self, encoder_outputs, mel_specs):
         if self.use_gst:
             if mel_specs is not None:
-                gst_outputs = self.gst(mel_specs).squeeze(1)
+                gst_outputs = self.gst(mel_specs).unsqueeze(1)
                 gst_outputs = gst_outputs.expand(-1, encoder_outputs.size(1),
                                                  -1)
             else:
