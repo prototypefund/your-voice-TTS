@@ -521,7 +521,7 @@ class SimpleGaussianAttention(nn.Module):
         k_t = gbk_t[:, 1].unsqueeze(1)
 
         # attention GMM parameters
-        sig_t = torch.sigmoid(b_t) * 0.5 + 0.25
+        sig_t = torch.sigmoid(b_t) * 0.5 + 0.3
         mu_t = self.mu_tm1 + torch.sigmoid(k_t)
 
         sig_t = sig_t.unsqueeze(1).expand(sig_t.size(0),
@@ -529,8 +529,11 @@ class SimpleGaussianAttention(nn.Module):
         mu_t_ = mu_t.expand_as(sig_t)
 
         # attention weights
-        phi_t = torch.exp(-0.5 * sig_t * (mu_t_ - self.J)**2)
-        alpha_t = self.COEF * phi_t + 1e-5
+        # phi_t = torch.exp(-0.5 * sig_t * (mu_t_ - self.J)**2)
+        # alpha_t = self.COEF * phi_t + 1e-5
+        d_sig_t_sq = 2 * sig_t ** 2
+        phi_t = torch.exp(- (mu_t_ - self.J) ** 2 / d_sig_t_sq)
+        alpha_t = phi_t / torch.sqrt(np.pi * d_sig_t_sq) + 1e-6
         if self.normalize_attention:
             alpha_t = alpha_t / alpha_t.sum(dim=1, keepdim=True)
 
