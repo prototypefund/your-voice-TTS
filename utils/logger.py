@@ -33,6 +33,10 @@ class Logger(object):
                     out_tensor = out_tensor[0][0].cpu()
                     self.activation_means[name].append(out_tensor.mean(dim=1))
                     self.activation_stds[name].append(out_tensor.std(dim=1))
+                elif name == "gst.encoder.recurrence":
+                    out_tensor = out_tensor[0][0].cpu()
+                    self.activation_means[name].append(out_tensor.mean(dim=1))
+                    self.activation_stds[name].append(out_tensor.std(dim=1))
                 elif name == "decoder.attention_rnn" or name == "decoder.decoder_rnn":
                     if isinstance(module, nn.LSTMCell):
                         out_tensor = (out_tensor[0].cpu(),
