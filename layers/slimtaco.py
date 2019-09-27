@@ -173,7 +173,8 @@ class Decoder(nn.Module):
             self.attention = GravesAttention(query_dim, num_gaussians=num_gaussians,
                                              normalize_attention=normalize_attention)
         elif attention_type == "simplegauss":
-            self.attention = SimpleGaussianAttention(query_dim, normalize_attention)
+            self.attention = SimpleGaussianAttention(query_dim, self.r,
+                                                     normalize_attention)
         self.decoder_rnn = nn.LSTMCell(self.query_dim + self.context_dim,
                                        self.decoder_rnn_dim, 1)
         # self.decoder_rnn = nn.GRUCell(self.query_dim + self.context_dim,
@@ -495,9 +496,11 @@ class GravesAttention(nn.Module):
 class SimpleGaussianAttention(nn.Module):
     COEF = 0.3989422917366028  # numpy.sqrt(1/(2*numpy.pi))
 
-    def __init__(self, mem_elem, normalize_attention=True):
+    def __init__(self, mem_elem, r, normalize_attention=True):
         super(SimpleGaussianAttention, self).__init__()
         self.normalize_attention = normalize_attention
+        # relationship between text len to spec len is roughly 1:5
+        self.step_scaling = r * 0.2
         self.epsilon = 1e-5
 
         self.N_a = getLinear(mem_elem, 2)
@@ -522,7 +525,7 @@ class SimpleGaussianAttention(nn.Module):
 
         # attention GMM parameters
         sig_t = torch.sigmoid(b_t) * 0.5 + 0.3
-        mu_t = self.mu_tm1 + torch.sigmoid(k_t)
+        mu_t = self.mu_tm1 + torch.sigmoid(k_t) * 2 * self.step_scaling
 
         sig_t = sig_t.unsqueeze(1).expand(sig_t.size(0),
                                           inputs.size(1))
