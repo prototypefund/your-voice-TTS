@@ -30,7 +30,8 @@ class SlimTaco(nn.Module):
                  embedding_size=256,
                  final_activation=None,
                  max_norm=1.0,
-                 symmetric=False):
+                 symmetric=False,
+                 use_splitter=False):
         super(SlimTaco, self).__init__()
         self.n_mel_channels = mel_dim
         self.n_frames_per_step = r
@@ -47,7 +48,8 @@ class SlimTaco(nn.Module):
             self.speaker_embedding = nn.Embedding(num_speakers,
                                                   self.speaker_dim)
             self.speaker_embedding.weight.data.normal_(0, 0.3)
-        self.encoder = Encoder(self.embedding_size, dropout=encoder_dropout)
+        self.encoder = Encoder(self.embedding_size, dropout=encoder_dropout,
+                               use_splitter=use_splitter)
         if self.use_gst:
             self.gst = GST(num_mel=self.n_mel_channels, num_heads=4,
                            num_style_tokens=16,
@@ -60,7 +62,8 @@ class SlimTaco(nn.Module):
             #                              use_separate_keys=True)
         self.decoder = Decoder(self.embedding_size, self.n_mel_channels, r,
                                prenet_type, prenet_dropout, query_dim, attention_type,
-                               num_gaussians, normalize_attention, decoder_lstm_reg)
+                               num_gaussians, normalize_attention, decoder_lstm_reg,
+                               use_splitter)
         self.postnet = Postnet(self.n_mel_channels, dropout=postnet_dropout)
 
     @staticmethod
@@ -73,7 +76,7 @@ class SlimTaco(nn.Module):
                 teacher_keep_rate=1.0):
         # compute mask for padding
         mask = sequence_mask(text_lengths).to(text.device)
-        embedded_inputs = self.embedding(text).transpose(1, 2)
+        embedded_inputs = self.embedding(text)
         encoder_outputs = self.encoder(embedded_inputs, text_lengths)
         # encoder_outputs = self._add_speaker_embedding(encoder_outputs,
         #                                               speaker_ids)
@@ -95,7 +98,7 @@ class SlimTaco(nn.Module):
         return mel_outputs, mel_outputs_postnet, alignments
 
     def inference(self, text, mel_specs=None, speaker_ids=None):
-        embedded_inputs = self.embedding(text).transpose(1, 2)
+        embedded_inputs = self.embedding(text)
         encoder_outputs = self.encoder.inference(embedded_inputs)
         # encoder_outputs = self._add_speaker_embedding(encoder_outputs,
         #                                               speaker_ids)
@@ -118,7 +121,7 @@ class SlimTaco(nn.Module):
     def inference_truncated(self, text, mel_specs=None, speaker_ids=None):
         """Preserve model states for continuous inference."""
 
-        embedded_inputs = self.embedding(text).transpose(1, 2)
+        embedded_inputs = self.embedding(text)
         encoder_outputs = self.encoder.inference_truncated(embedded_inputs)
         encoder_outputs = self._add_speaker_embedding(encoder_outputs,
                                                       speaker_ids)

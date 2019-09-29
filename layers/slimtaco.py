@@ -85,8 +85,12 @@ class Postnet(nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, in_features=512, num_convs=3, dropout=0.5):
+    def __init__(self, in_features=512, num_convs=3, dropout=0.5,
+                 use_splitter=False):
         super(Encoder, self).__init__()
+        self.use_splitter = use_splitter
+        if use_splitter:
+            self.splitter = Linear(in_features, in_features * 2)
         convolutions = []
         for _ in range(num_convs):
             convolutions.append(
@@ -102,6 +106,11 @@ class Encoder(nn.Module):
         self.rnn_state = None
 
     def forward(self, x, input_lengths):
+        if self.use_splitter:
+            B, T, D = x.size(0), x.size(1), x.size(2)
+            x = self.splitter(x)
+            x = x.reshape((B, 2*T, D))
+        x = x.transpose(1, 2)
         for conv in self.convolutions:
             x = conv(x)
         x = x.transpose(1, 2)
@@ -117,6 +126,11 @@ class Encoder(nn.Module):
         return outputs
 
     def inference(self, x):
+        if self.use_splitter:
+            B, T, D = x.size(0), x.size(1), x.size(2)
+            x = self.splitter(x)
+            x = x.reshape((B, 2*T, D))
+        x = x.transpose(1, 2)
         for conv in self.convolutions:
             x = conv(x)
         x = x.transpose(1, 2)
@@ -128,6 +142,11 @@ class Encoder(nn.Module):
         """
         Preserve encoder state for continuous inference
         """
+        if self.use_splitter:
+            B, T, D = x.size(0), x.size(1), x.size(2)
+            x = self.splitter(x)
+            x = x.reshape((B, 2*T, D))
+        x = x.transpose(1, 2)
         for conv in self.convolutions:
             x = conv(x)
         x = x.transpose(1, 2)
@@ -143,7 +162,7 @@ class Decoder(nn.Module):
     def __init__(self, in_features, memory_dim, r,
                  prenet_type, prenet_dropout, query_dim, attention_type,
                  num_gaussians, normalize_attention,
-                 lstm_reg="dropout"):
+                 lstm_reg="dropout", use_splitter=False):
         super(Decoder, self).__init__()
         self.memory_dim = memory_dim
         self.r = r
@@ -174,7 +193,8 @@ class Decoder(nn.Module):
                                              normalize_attention=normalize_attention)
         elif attention_type == "simplegauss":
             self.attention = SimpleGaussianAttention(query_dim, self.r,
-                                                     normalize_attention)
+                                                     normalize_attention,
+                                                     use_splitter)
         self.decoder_rnn = nn.LSTMCell(self.query_dim + self.context_dim,
                                        self.decoder_rnn_dim, 1)
         # self.decoder_rnn = nn.GRUCell(self.query_dim + self.context_dim,
@@ -496,11 +516,13 @@ class GravesAttention(nn.Module):
 class SimpleGaussianAttention(nn.Module):
     COEF = 0.3989422917366028  # numpy.sqrt(1/(2*numpy.pi))
 
-    def __init__(self, mem_elem, r, normalize_attention=True):
+    def __init__(self, mem_elem, r, normalize_attention=False, use_splitter=False):
         super(SimpleGaussianAttention, self).__init__()
         self.normalize_attention = normalize_attention
-        # relationship between text len to spec len is roughly 1:5
+        # relationship between text len to spec len is roughly 1:5, 1:2.5 if using splitter
         self.step_scaling = r * 0.2
+        if use_splitter:
+            self.step_scaling = self.step_scaling * 2
         self.epsilon = 1e-5
 
         self.N_a = getLinear(mem_elem, 2)

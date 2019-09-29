@@ -308,7 +308,8 @@ def setup_model(num_chars, num_speakers, c):
             embedding_size=c.get("embedding_size", 256),
             final_activation=c.get("final_activation"),
             max_norm=c.audio["max_norm"],
-            symmetric=c.audio["symmetric_norm"])
+            symmetric=c.audio["symmetric_norm"],
+            use_splitter=c.get("use_splitter", False))
     elif c.model.lower() == "parataco":
         model = MyModel(
             num_chars=num_chars,
