@@ -76,8 +76,6 @@ class SlimTaco(nn.Module):
     def forward(self, text, text_lengths, mel_specs=None, speaker_ids=None,
                 teacher_keep_rate=1.0):
         # compute mask for padding
-        if self.use_splitter:
-            text_lengths = 2*text_lengths
         mask = sequence_mask(text_lengths).to(text.device)
         embedded_inputs = self.embedding(text)
         encoder_outputs = self.encoder(embedded_inputs, text_lengths)

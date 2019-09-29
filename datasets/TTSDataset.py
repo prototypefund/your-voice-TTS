@@ -25,7 +25,8 @@ class MyDataset(Dataset):
                  phoneme_cache_path=None,
                  phoneme_language="en-us",
                  enable_eos_bos=False,
-                 verbose=False):
+                 verbose=False,
+                 use_splitter=False):
         """
         Args:
             outputs_per_step (int): number of time frames predicted per step.
@@ -57,6 +58,7 @@ class MyDataset(Dataset):
         self.phoneme_language = phoneme_language
         self.enable_eos_bos = enable_eos_bos
         self.verbose = verbose
+        self.use_splitter = use_splitter
         if use_phonemes and not os.path.isdir(phoneme_cache_path):
             os.makedirs(phoneme_cache_path, exist_ok=True)
         if self.verbose:
@@ -186,6 +188,8 @@ class MyDataset(Dataset):
         if isinstance(batch[0], collections.Mapping):
 
             text_lenghts = np.array([len(d["text"]) for d in batch])
+            if self.use_splitter:
+                text_lenghts = 2 * text_lenghts
             text_lenghts, ids_sorted_decreasing = torch.sort(
                 torch.LongTensor(text_lenghts), dim=0, descending=True)
 
